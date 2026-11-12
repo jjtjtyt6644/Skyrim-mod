@@ -43,7 +43,8 @@ The trainer runs as an overlay on top of Skyrim, not as a separate window.
 
 - If the console doesn't open (non-US keyboard), change **Settings → Console key scan code**.
 - If commands get cut off, raise **Key delay**.
-- Hotkeys are **Ctrl+F1 – Ctrl+F8**. Plain F-keys would clash with quicksave and quickload.
+- Cheat hotkeys are **F1–F4, F6–F8 and F10**. They skip F5 and F9 (quicksave and quickload) and have no Ctrl, because Ctrl is Skyrim's sneak key. They only work while Skyrim or the trainer is the active window.
+- Hotkeys use a low-level keyboard hook (`bridge/SkyrimHotkeys.ps1`), because Windows' normal global hotkeys don't fire while Skyrim has focus. The hook only watches those keys and never blocks them.
 - Toggles like Infinite Magicka use `modav`, and `modav` changes are kept in your save. Use **Turn off all toggles** before you save if you want a clean character.
 - Achievements: the console doesn't disable achievements, and this trainer loads no plugins. The Achievements tab only makes real in-game progress happen (skill-ups and level-ups), and the game decides what to award. To unlock achievements directly, use Steam Achievement Manager.
 

@@ -157,11 +157,21 @@ async function runCommands(commands) {
   }
   // While the overlay is open, hand focus back to it afterwards so the mouse stays usable.
   const ret = overlayOpen ? hwnd() : '0';
-  const res = await bridgeCall(`RUN|${BAT_NAME}|${Number(config.consoleScan) | 0}|${Number(config.keyDelay) | 0}|${ret}`);
+  dbg('run start', clean, { ret, holdCount });
+  const res = await holdOpen(() => bridgeCall(`RUN|${BAT_NAME}|${Number(config.consoleScan) | 0}|${Number(config.keyDelay) | 0}|${ret}`));
   return res === 'OK' ? { ok: true } : { ok: false, error: res.replace(/^ERR:/, '') };
 }
 
 // ---------- overlay ----------
+// The overlay closes itself when it loses focus (click into the game, alt-tab),
+// except while we deliberately hand focus to the game to type a command.
+let holdCount = 0;
+const dbg = (...a) => { if (process.env.DOVAH_DEBUG) console.log(new Date().toISOString().slice(17, 23), ...a); };
+async function holdOpen(fn) {
+  holdCount++;
+  try { return await fn(); }
+  finally { setTimeout(() => { holdCount--; }, 400); }
+}
 function fitToScreen() {
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   win.setBounds(d.bounds);
@@ -172,35 +182,73 @@ async function showOverlay() {
   fitToScreen();
   overlayOpen = true;
   win.setAlwaysOnTop(true, 'screen-saver');
-  win.show();
-  win.focus();
-  win.webContents.send('overlay', true);
-  // Skyrim holds the foreground; take it back so the cursor is freed.
-  await bridgeCall(`FOCUS|${hwnd()}`);
+  await holdOpen(async () => {
+    win.show();
+    win.focus();
+    win.webContents.send('overlay', true);
+    // Skyrim holds the foreground; take it back so the cursor is freed.
+    await bridgeCall(`FOCUS|${hwnd()}`);
+  });
 }
 
-function hideOverlay() {
+function hideOverlay(returnToGame = true) {
+  dbg('hideOverlay', { returnToGame, overlayOpen, holdCount });
   if (!win || !overlayOpen) return;
   overlayOpen = false;
   win.webContents.send('overlay', false);
   setTimeout(async () => {
     if (overlayOpen) return; // reopened during the animation
     win.hide();
-    await bridgeCall('FOCUSGAME'); // back to the game; error just means it isn't running
+    // Back to the game; an error just means it isn't running.
+    if (returnToGame) await bridgeCall('FOCUSGAME');
   }, 230);
 }
 
 const toggleOverlay = () => (overlayOpen ? hideOverlay() : showOverlay());
 
-// ---------- hotkeys ----------
-const HOTKEYS = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8'];
+// ---------- hotkeys (low-level keyboard hook; works while Skyrim has focus) ----------
+// Plain F-keys, no modifiers: Ctrl is Skyrim's sneak key. F5/F9 are quicksave/quickload.
+const VK_INSERT = 0x2d;
+const HOTKEYS = { 0x70: 'F1', 0x71: 'F2', 0x72: 'F3', 0x73: 'F4', 0x75: 'F6', 0x76: 'F7', 0x77: 'F8', 0x79: 'F10' };
+const hook = { proc: null, buf: '' };
+const OWN_PROCESS = path.parse(process.execPath).name; // "Dovah Trainer" (or "electron" in dev)
+
+function onHookKey(vk, fgProcess) {
+  if (vk === VK_INSERT) return toggleOverlay();
+  const key = HOTKEYS[vk];
+  if (!key || !config.hotkeys) return;
+  // Only while playing (or in the trainer), so F-keys keep working normally elsewhere.
+  if (fgProcess !== 'SkyrimSE' && fgProcess !== OWN_PROCESS) return;
+  win?.webContents.send('hotkey', key);
+}
+
+function startHook() {
+  const script = path.join(__dirname, 'bridge', 'SkyrimHotkeys.ps1').replace('app.asar', 'app.asar.unpacked');
+  const keys = [VK_INSERT, ...Object.keys(HOTKEYS)].join(',');
+  hook.proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Keys', keys], { windowsHide: true });
+  hook.proc.stdout.setEncoding('utf8');
+  hook.proc.stdout.on('data', (chunk) => {
+    hook.buf += chunk;
+    let i;
+    while ((i = hook.buf.indexOf('\n')) >= 0) {
+      const [kind, vk, fg] = hook.buf.slice(0, i).trim().split('|');
+      hook.buf = hook.buf.slice(i + 1);
+      if (kind === 'KEY') onHookKey(Number(vk), fg);
+      else if (kind === 'ERR') console.error('[hook]', vk);
+    }
+  });
+  hook.proc.stderr.on('data', (d) => console.error('[hook]', d.toString()));
+  hook.proc.on('exit', () => {
+    hook.proc = null;
+    if (!quitting) setTimeout(startHook, 1000); // keep the hotkeys alive
+  });
+}
+
+// Fallback for when the game isn't focused (e.g. on the desktop). The hook
+// already handles Insert, so this only fires if the hook process is down.
 function registerHotkeys() {
   globalShortcut.unregisterAll();
-  globalShortcut.register(TOGGLE_KEY, toggleOverlay);
-  if (!config.hotkeys) return;
-  for (const key of HOTKEYS) {
-    globalShortcut.register(`CommandOrControl+${key}`, () => win?.webContents.send('hotkey', key));
-  }
+  if (!hook.proc) globalShortcut.register(TOGGLE_KEY, toggleOverlay);
 }
 
 // ---------- tray ----------
@@ -246,8 +294,20 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => showOverlay());
+  win.once('ready-to-show', async () => {
+    // Don't pop up over a game in progress; just say how to open it.
+    if ((await bridgeCall('STATUS')) === 'STATUS:1') {
+      tray?.displayBalloon({ iconType: 'info', title: 'Dovah Trainer is running', content: `Press ${TOGGLE_KEY} in game to open it.` });
+    } else {
+      showOverlay();
+    }
+  });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); hideOverlay(); } });
+  // Focus already went somewhere else (game or another app): just get out of the way.
+  win.on('focus', () => dbg('focus'));
+  win.on('blur', () => {
+    dbg('blur', { overlayOpen, holdCount }); if (overlayOpen && holdCount === 0) hideOverlay(false);
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 }
@@ -258,6 +318,7 @@ app.whenReady().then(async () => {
   loadConfig();
   if (!isGameDir(config.gamePath)) { config.gamePath = await detectGamePath(); saveConfig(); }
   startBridge();
+  startHook();
   createWindow();
   createTray();
   registerHotkeys();
@@ -278,7 +339,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('config:browse', async () => {
     win.setAlwaysOnTop(false);
-    const r = await dialog.showOpenDialog(win, { title: 'Select your Skyrim Special Edition folder', properties: ['openDirectory'] });
+    const r = await holdOpen(() => dialog.showOpenDialog(win, { title: 'Select your Skyrim Special Edition folder', properties: ['openDirectory'] }));
     win.setAlwaysOnTop(true, 'screen-saver');
     if (r.canceled || !r.filePaths[0]) return null;
     return { path: r.filePaths[0], valid: isGameDir(r.filePaths[0]) };
@@ -304,5 +365,5 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => { quitting = true; });
-app.on('will-quit', () => { globalShortcut.unregisterAll(); bridge.proc?.kill(); });
+app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); bridge.proc?.kill(); hook.proc?.kill(); });
 app.on('window-all-closed', () => app.quit());

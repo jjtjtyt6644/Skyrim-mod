@@ -128,7 +128,7 @@
       </section>`).join('');
   }
 
-  const hk = (it) => (it.hotkey ? `<span class="kbd">Ctrl+${it.hotkey}</span>` : '');
+  const hk = (it) => (it.hotkey ? `<span class="kbd">${it.hotkey}</span>` : '');
   const meta = (it) => `<div class="meta"><h4>${esc(it.name)} ${hk(it)}</h4><p>${esc(it.desc)}</p></div>`;
 
   function renderItem(it, i) {
@@ -260,7 +260,7 @@
             <input class="field" id="scan" value="${scanHex}" style="width:90px"></div>
           <div class="card" style="--i:2"><div class="meta"><h4>Key delay (ms)</h4><p>Raise this if commands are cut off or the console doesn't open in time.</p></div>
             <input class="field" id="delay" type="number" min="15" max="300" value="${c.keyDelay}" style="width:90px"></div>
-          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>Ctrl+F1–F8 toggle cheats while you're in game.</p></div><div class="switch"></div></div>
+          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats while Skyrim is focused. Insert always opens the trainer.</p></div><div class="switch"></div></div>
         </div></section>
         <section class="section"><div class="section-title">Updates</div><div class="grid">
           <div class="card wide" style="--i:4"><div class="meta"><h4>Version <span class="ver">${esc(state.version)}</span></h4>
@@ -268,7 +268,7 @@
             <div class="row"><button class="btn frost" id="upd-check">Check for updates</button><button class="btn" id="upd-notes">Release notes</button><button class="ghost" data-win="quit">Quit trainer</button></div></div>
         </div></section>
         <section class="section"><div class="section-title">Hotkey map</div><div class="grid">
-          ${[...hotkeys].map(([k, it], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">Ctrl+${k}</span><div class="meta"><h4>${esc(it.name)}</h4></div></div>`).join('')}
+          ${[...hotkeys].map(([k, it], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">${k}</span><div class="meta"><h4>${esc(it.name)}</h4></div></div>`).join('')}
         </div></section>`;
     },
   };

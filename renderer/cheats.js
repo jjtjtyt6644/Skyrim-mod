@@ -30,7 +30,7 @@ window.TABS = [
         title: 'Combat',
         items: [
           { type: 'toggle', id: 'crit', name: 'Always Critical', desc: '100% critical hit chance.', on: ['player.setav critchance 100'], off: ['player.setav critchance 0'], hotkey: 'F4' },
-          { type: 'toggle', id: 'ohk', name: 'One-Hit Kills', desc: '100x weapon attack damage.', on: ['player.setav attackdamagemult 100'], off: ['player.setav attackdamagemult 1'], hotkey: 'F5' },
+          { type: 'toggle', id: 'ohk', name: 'One-Hit Kills', desc: '100x weapon attack damage.', on: ['player.setav attackdamagemult 100'], off: ['player.setav attackdamagemult 1'], hotkey: 'F6' },
           { type: 'toggle', id: 'stealth', name: 'Undetectable', desc: 'Turns off AI detection — sneak anywhere.', on: ['tdetect'], off: ['tdetect'] },
           { type: 'slider', name: 'Damage Multiplier', desc: 'Fine-tune attack damage (1 = normal).', min: 1, max: 50, step: 1, value: 1, unit: 'x', cmds: (v) => [`player.setav attackdamagemult ${v}`] },
         ],
@@ -38,11 +38,11 @@ window.TABS = [
       {
         title: 'Movement',
         items: [
-          { type: 'toggle', id: 'speed', name: 'Super Speed', desc: 'Run at 3x speed.', on: speedCmds(300), off: speedCmds(100), hotkey: 'F6' },
+          { type: 'toggle', id: 'speed', name: 'Super Speed', desc: 'Run at 3x speed.', on: speedCmds(300), off: speedCmds(100), hotkey: 'F7' },
           { type: 'slider', name: 'Movement Speed', desc: 'Custom speed (100 = normal).', min: 50, max: 1000, step: 10, value: 100, unit: '%', cmds: speedCmds },
           { type: 'slider', name: 'Jump Height', desc: 'Jump height (76 = normal).', min: 76, max: 1500, step: 2, value: 76, cmds: (v) => [`setgs fJumpHeightMin ${v}`] },
           { type: 'toggle', id: 'nofall', name: 'No Fall Damage', desc: 'Survive any drop.', on: ['setgs fJumpFallHeightMin 100000'], off: ['setgs fJumpFallHeightMin 600'] },
-          { type: 'toggle', id: 'noclip', name: 'No Clip', desc: 'Walk through walls and fly (toggle collision).', on: ['tcl'], off: ['tcl'], hotkey: 'F7' },
+          { type: 'toggle', id: 'noclip', name: 'No Clip', desc: 'Walk through walls and fly (toggle collision).', on: ['tcl'], off: ['tcl'], hotkey: 'F8' },
         ],
       },
     ],
@@ -83,7 +83,7 @@ window.TABS = [
       {
         title: 'World Rules',
         items: [
-          { type: 'toggle', id: 'freezeai', name: 'Freeze All NPCs', desc: 'Toggle AI processing.', on: ['tai'], off: ['tai'], hotkey: 'F8' },
+          { type: 'toggle', id: 'freezeai', name: 'Freeze All NPCs', desc: 'Toggle AI processing.', on: ['tai'], off: ['tai'], hotkey: 'F10' },
           { type: 'toggle', id: 'nocombat', name: 'Peaceful NPCs', desc: 'Toggle combat AI — nobody fights.', on: ['tcai'], off: ['tcai'] },
           { type: 'toggle', id: 'flycam', name: 'Free Camera', desc: 'Detach the camera to fly around.', on: ['tfc'], off: ['tfc'] },
           { type: 'button', name: 'Reveal All Map Markers', desc: 'Show every location on the map.', label: 'Reveal', cmds: ['tmm 1'] },
