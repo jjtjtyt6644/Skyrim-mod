@@ -1,12 +1,14 @@
 // Dovah Trainer — Electron main process.
-// Writes console commands to <Skyrim>\dovahtrainer.txt and asks the PowerShell
-// bridge to type "bat dovahtrainer" into the game console.
-const { app, BrowserWindow, ipcMain, globalShortcut, shell, dialog } = require('electron');
+// Runs as an in-game overlay (transparent, always-on-top, toggled with Insert).
+// Cheats are written to <Skyrim>\dovahtrainer.txt and the PowerShell bridge
+// types "bat dovahtrainer" into the game console.
+const { app, BrowserWindow, ipcMain, globalShortcut, shell, dialog, screen, Tray, Menu, nativeImage } = require('electron');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
 const BAT_NAME = 'dovahtrainer';
+const TOGGLE_KEY = 'Insert';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json');
 const DEFAULTS = { gamePath: '', consoleScan: 0x29, keyDelay: 45, hotkeys: true };
 const ALLOWED_LINKS = new Set([
@@ -15,7 +17,13 @@ const ALLOWED_LINKS = new Set([
   'https://github.com/jjtjtyt6644/Skyrim-mod/releases',
 ]);
 
+// One trainer at a time — launching again just opens the overlay.
+if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+
 let win = null;
+let tray = null;
+let overlayOpen = false;
+let quitting = false;
 let config = { ...DEFAULTS };
 
 // ---------- config ----------
@@ -61,6 +69,43 @@ async function detectGamePath() {
   return '';
 }
 
+// ---------- display mode (overlay needs borderless windowed) ----------
+function prefsPath() {
+  for (const n of ['Skyrim Special Edition', 'Skyrim Special Edition GOG', 'Skyrim Special Edition EPIC', 'Skyrim Special Edition MS']) {
+    const p = path.join(app.getPath('documents'), 'My Games', n, 'SkyrimPrefs.ini');
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function readDisplay() {
+  const p = prefsPath();
+  if (!p) return { found: false, mode: 'unknown' };
+  const t = fs.readFileSync(p, 'utf8');
+  const full = /^\s*bFull Screen\s*=\s*1/im.test(t);
+  const borderless = /^\s*bBorderless\s*=\s*1/im.test(t);
+  return { found: true, mode: full ? 'fullscreen' : borderless ? 'borderless' : 'windowed' };
+}
+
+async function makeBorderless() {
+  const p = prefsPath();
+  if (!p) return { ok: false, error: 'SkyrimPrefs.ini not found. Start Skyrim once first.' };
+  if ((await bridgeCall('STATUS')) === 'STATUS:1') return { ok: false, error: 'Close Skyrim first. The game overwrites this file when it exits.' };
+  let t = fs.readFileSync(p, 'utf8');
+  const backup = p + '.dovah-backup';
+  if (!fs.existsSync(backup)) fs.writeFileSync(backup, t);
+  const setKey = (key, val) => {
+    const re = new RegExp(`^(\\s*${key}\\s*=\\s*)\\S*`, 'im');
+    if (re.test(t)) t = t.replace(re, (_m, pre) => pre + val);
+    else if (/^\[Display\]/im.test(t)) t = t.replace(/^\[Display\]\s*$/im, (m) => `${m}\r\n${key}=${val}`);
+    else t += `\r\n[Display]\r\n${key}=${val}\r\n`;
+  };
+  setKey('bFull Screen', '0');
+  setKey('bBorderless', '1');
+  fs.writeFileSync(p, t);
+  return { ok: true };
+}
+
 // ---------- PowerShell bridge ----------
 const bridge = { proc: null, buf: '', waiters: [], ready: null };
 
@@ -99,6 +144,8 @@ function bridgeCall(line) {
   return job;
 }
 
+const hwnd = () => (win ? win.getNativeWindowHandle().readBigUInt64LE(0).toString() : '0');
+
 async function runCommands(commands) {
   if (!Array.isArray(commands) || commands.length === 0) return { ok: false, error: 'No commands' };
   if (!isGameDir(config.gamePath)) return { ok: false, error: 'Set your Skyrim folder in Settings first' };
@@ -108,18 +155,65 @@ async function runCommands(commands) {
   } catch (e) {
     return { ok: false, error: `Could not write batch file: ${e.message}` };
   }
-  const res = await bridgeCall(`RUN|${BAT_NAME}|${Number(config.consoleScan) | 0}|${Number(config.keyDelay) | 0}`);
+  // While the overlay is open, hand focus back to it afterwards so the mouse stays usable.
+  const ret = overlayOpen ? hwnd() : '0';
+  const res = await bridgeCall(`RUN|${BAT_NAME}|${Number(config.consoleScan) | 0}|${Number(config.keyDelay) | 0}|${ret}`);
   return res === 'OK' ? { ok: true } : { ok: false, error: res.replace(/^ERR:/, '') };
 }
+
+// ---------- overlay ----------
+function fitToScreen() {
+  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  win.setBounds(d.bounds);
+}
+
+async function showOverlay() {
+  if (!win) return;
+  fitToScreen();
+  overlayOpen = true;
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.show();
+  win.focus();
+  win.webContents.send('overlay', true);
+  // Skyrim holds the foreground; take it back so the cursor is freed.
+  await bridgeCall(`FOCUS|${hwnd()}`);
+}
+
+function hideOverlay() {
+  if (!win || !overlayOpen) return;
+  overlayOpen = false;
+  win.webContents.send('overlay', false);
+  setTimeout(async () => {
+    if (overlayOpen) return; // reopened during the animation
+    win.hide();
+    await bridgeCall('FOCUSGAME'); // back to the game; error just means it isn't running
+  }, 230);
+}
+
+const toggleOverlay = () => (overlayOpen ? hideOverlay() : showOverlay());
 
 // ---------- hotkeys ----------
 const HOTKEYS = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8'];
 function registerHotkeys() {
   globalShortcut.unregisterAll();
+  globalShortcut.register(TOGGLE_KEY, toggleOverlay);
   if (!config.hotkeys) return;
   for (const key of HOTKEYS) {
     globalShortcut.register(`CommandOrControl+${key}`, () => win?.webContents.send('hotkey', key));
   }
+}
+
+// ---------- tray ----------
+function createTray() {
+  const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'icon.png')).resize({ width: 16, height: 16 });
+  tray = new Tray(img);
+  tray.setToolTip(`Dovah Trainer: press ${TOGGLE_KEY} in game`);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: `Show / hide trainer (${TOGGLE_KEY})`, click: toggleOverlay },
+    { type: 'separator' },
+    { label: 'Quit Dovah Trainer', click: () => { quitting = true; app.quit(); } },
+  ]));
+  tray.on('click', toggleOverlay);
 }
 
 // ---------- auto-updater (GitHub releases of jjtjtyt6644/Skyrim-mod) ----------
@@ -145,28 +239,36 @@ function setupUpdater() {
 // ---------- window ----------
 function createWindow() {
   win = new BrowserWindow({
-    width: 1240, height: 800, minWidth: 980, minHeight: 640,
-    frame: false, backgroundColor: '#07090d', show: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    show: false, frame: false, transparent: true, backgroundColor: '#00000000',
+    skipTaskbar: true, resizable: false, movable: false, minimizable: false, maximizable: false,
+    fullscreenable: false, hasShadow: false, alwaysOnTop: true,
+    icon: path.join(__dirname, 'renderer', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => showOverlay());
+  win.on('close', (e) => { if (!quitting) { e.preventDefault(); hideOverlay(); } });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 }
+
+app.on('second-instance', () => showOverlay());
 
 app.whenReady().then(async () => {
   loadConfig();
   if (!isGameDir(config.gamePath)) { config.gamePath = await detectGamePath(); saveConfig(); }
   startBridge();
   createWindow();
+  createTray();
   registerHotkeys();
 
   ipcMain.handle('run', (_e, cmds) => runCommands(cmds));
   ipcMain.handle('status', async () => ({
     game: (await bridgeCall('STATUS')) === 'STATUS:1',
     pathOk: isGameDir(config.gamePath),
+    display: readDisplay().mode,
   }));
+  ipcMain.handle('display:fix', () => makeBorderless());
   ipcMain.handle('config:get', () => config);
   ipcMain.handle('config:set', (_e, patch) => {
     const allowed = ['gamePath', 'consoleScan', 'keyDelay', 'hotkeys'];
@@ -175,27 +277,32 @@ app.whenReady().then(async () => {
     return config;
   });
   ipcMain.handle('config:browse', async () => {
+    win.setAlwaysOnTop(false);
     const r = await dialog.showOpenDialog(win, { title: 'Select your Skyrim Special Edition folder', properties: ['openDirectory'] });
+    win.setAlwaysOnTop(true, 'screen-saver');
     if (r.canceled || !r.filePaths[0]) return null;
     return { path: r.filePaths[0], valid: isGameDir(r.filePaths[0]) };
   });
   ipcMain.handle('config:detect', async () => detectGamePath());
-  ipcMain.handle('open-link', (_e, url) => { if (ALLOWED_LINKS.has(url)) shell.openExternal(url); });
+  ipcMain.handle('open-link', (_e, url) => {
+    if (!ALLOWED_LINKS.has(url)) return;
+    hideOverlay();
+    shell.openExternal(url);
+  });
   ipcMain.handle('version', () => app.getVersion());
   ipcMain.handle('update:check', async () => {
     if (!autoUpdater) return { dev: true };
     await autoUpdater.checkForUpdates().catch((e) => sendUpdate('error', { message: String(e?.message || e).split('\n')[0] }));
     return {};
   });
-  ipcMain.handle('update:install', () => { autoUpdater?.quitAndInstall(true, true); });
+  ipcMain.handle('update:install', () => { quitting = true; autoUpdater?.quitAndInstall(true, true); });
   setupUpdater();
   ipcMain.on('win', (_e, action) => {
-    if (!win) return;
-    if (action === 'min') win.minimize();
-    else if (action === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
-    else if (action === 'close') win.close();
+    if (action === 'hide') hideOverlay();
+    else if (action === 'quit') { quitting = true; app.quit(); }
   });
 });
 
+app.on('before-quit', () => { quitting = true; });
 app.on('will-quit', () => { globalShortcut.unregisterAll(); bridge.proc?.kill(); });
 app.on('window-all-closed', () => app.quit());

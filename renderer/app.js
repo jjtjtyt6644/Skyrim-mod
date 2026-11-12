@@ -8,6 +8,7 @@
     setConfig: async (p) => p, browseGame: async () => null, detectGame: async () => '',
     openLink: async (u) => window.open(u), window: () => {}, onHotkey: () => {},
     version: async () => 'dev', checkUpdate: async () => ({ dev: true }), installUpdate: async () => {}, onUpdate: () => {},
+    onOverlay: () => {}, fixDisplay: async () => ({ ok: true }),
   };
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -264,7 +265,7 @@
         <section class="section"><div class="section-title">Updates</div><div class="grid">
           <div class="card wide" style="--i:4"><div class="meta"><h4>Version <span class="ver">${esc(state.version)}</span></h4>
             <p id="upd-text">${esc(updateText())}</p></div>
-            <div class="row"><button class="btn frost" id="upd-check">Check for updates</button><button class="btn" id="upd-notes">Release notes</button></div></div>
+            <div class="row"><button class="btn frost" id="upd-check">Check for updates</button><button class="btn" id="upd-notes">Release notes</button><button class="ghost" data-win="quit">Quit trainer</button></div></div>
         </div></section>
         <section class="section"><div class="section-title">Hotkey map</div><div class="grid">
           ${[...hotkeys].map(([k, it], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">Ctrl+${k}</span><div class="meta"><h4>${esc(it.name)}</h4></div></div>`).join('')}
@@ -356,6 +357,7 @@
         if (r?.dev) toast('Updates are disabled in dev mode', 'Install the released .exe to get auto-updates');
       });
       $('#upd-notes').addEventListener('click', () => api.openLink(RELEASES_URL));
+      $('#page [data-win="quit"]').addEventListener('click', () => api.window('quit'));
       refreshStatus();
     },
   };
@@ -407,6 +409,7 @@
     const el = $('#status');
     el.className = 'status ' + (!s.pathOk ? 'warn' : s.game ? 'on' : 'off');
     $('span', el).textContent = !s.pathOk ? 'Set game folder in Settings' : s.game ? 'Skyrim connected' : 'Waiting for Skyrim…';
+    $('#display-warn').hidden = s.display !== 'fullscreen';
     const po = $('#path-ok');
     if (po) po.innerHTML = s.pathOk ? '<span class="pill-ok">● valid</span>' : '<span class="pill-bad">● SkyrimSE.exe not found</span>';
   }
@@ -448,7 +451,7 @@
     const cv = $('#embers'), ctx = cv.getContext('2d');
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     let w, h, ps = [];
-    const resize = () => { w = cv.width = innerWidth * devicePixelRatio; h = cv.height = innerHeight * devicePixelRatio; };
+    const resize = () => { const r = cv.getBoundingClientRect(); w = cv.width = r.width * devicePixelRatio; h = cv.height = r.height * devicePixelRatio; };
     const spawn = (init) => ({
       x: Math.random() * w, y: init ? Math.random() * h : h + 10, r: (Math.random() * 1.6 + .4) * devicePixelRatio,
       vy: -(Math.random() * .35 + .12) * devicePixelRatio, vx: (Math.random() - .5) * .2, life: Math.random() * Math.PI * 2,
@@ -473,6 +476,20 @@
 
   // ---------------- Wiring ----------------
   $$('[data-win]').forEach((b) => b.addEventListener('click', () => api.window(b.dataset.win)));
+  $('#backdrop').addEventListener('click', () => api.window('hide'));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !e.target.closest('input, select')) api.window('hide');
+  });
+  api.onOverlay((open) => {
+    document.body.classList.toggle('open', open);
+    if (open) { refreshStatus(); requestAnimationFrame(moveIndicator); }
+  });
+  $('#fix-display').addEventListener('click', async () => {
+    const r = await api.fixDisplay();
+    if (!r.ok) return toast('Could not change display mode', r.error, true);
+    $('#display-warn').hidden = true;
+    toast('Skyrim set to Borderless Windowed', 'Start the game, then press Insert to open the trainer');
+  });
 
   $('#reset-all').addEventListener('click', async () => {
     const active = Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter(Boolean);

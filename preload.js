@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld('trainer', {
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onUpdate: (fn) => ipcRenderer.on('update', (_e, info) => fn(info)),
+  onOverlay: (fn) => ipcRenderer.on('overlay', (_e, open) => fn(open)),
+  fixDisplay: () => ipcRenderer.invoke('display:fix'),
 });

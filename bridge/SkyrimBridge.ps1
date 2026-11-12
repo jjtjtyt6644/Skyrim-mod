@@ -4,8 +4,11 @@
 # KEYEVENTF_SCANCODE), which DirectInput games like Skyrim actually receive.
 #
 # Protocol (one line each way):
-#   STATUS                              -> STATUS:1  | STATUS:0
-#   RUN|<batName>|<consoleScan>|<delay>  -> OK         | ERR:<message>
+#   STATUS                                         -> STATUS:1 | STATUS:0
+#   RUN|<batName>|<consoleScan>|<delay>|<returnHwnd> -> OK | ERR:<message>
+#        returnHwnd = window to give focus back to afterwards (0 = stay in game)
+#   FOCUSGAME                                      -> OK | ERR:<message>
+#   FOCUS|<hwnd>                                   -> OK | ERR:<message>
 $ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @"
@@ -23,9 +26,13 @@ public static class SkyKeys {
     [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int size);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
-    [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
     const uint INPUT_KEYBOARD = 1, KEYEVENTF_KEYUP = 0x2, KEYEVENTF_SCANCODE = 0x8;
 
@@ -60,22 +67,30 @@ public static class SkyKeys {
         return IntPtr.Zero;
     }
 
+    // Foreground switch without injecting any keys into the game: attach to the
+    // current foreground thread's input queue so Windows allows the change.
     public static bool Focus(IntPtr h) {
+        if (h == IntPtr.Zero || !IsWindow(h)) return false;
         if (GetForegroundWindow() == h) return true;
         if (IsIconic(h)) ShowWindow(h, 9); // SW_RESTORE
-        // Alt tap lifts the foreground-lock so SetForegroundWindow is honoured.
-        keybd_event(0x12, 0, 0, UIntPtr.Zero);
-        keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        uint me = GetCurrentThreadId();
+        uint fg = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
+        uint target = GetWindowThreadProcessId(h, IntPtr.Zero);
+        bool a1 = fg != me && AttachThreadInput(me, fg, true);
+        bool a2 = target != me && target != fg && AttachThreadInput(me, target, true);
+        BringWindowToTop(h);
         SetForegroundWindow(h);
+        if (a2) AttachThreadInput(me, target, false);
+        if (a1) AttachThreadInput(me, fg, false);
         for (int i = 0; i < 20; i++) { if (GetForegroundWindow() == h) return true; Thread.Sleep(25); }
         return false;
     }
 
-    public static string RunBat(string bat, ushort consoleScan, int delay) {
+    public static string RunBat(string bat, ushort consoleScan, int delay, IntPtr returnTo) {
         IntPtr h = FindGame();
         if (h == IntPtr.Zero) return "ERR:Skyrim SE is not running";
         if (!Focus(h)) return "ERR:Could not focus the Skyrim window";
-        Thread.Sleep(delay * 2);
+        Thread.Sleep(delay * 3);
         // Release modifiers still held from a Ctrl+F-key hotkey so they don't mangle typing.
         Key(0x1D, true); Key(0x2A, true); Key(0x38, true);
         Thread.Sleep(delay);
@@ -85,6 +100,7 @@ public static class SkyKeys {
         Tap(0x1C, delay);                  // Enter
         Thread.Sleep(delay * 3);
         Tap(consoleScan, delay);           // close console
+        if (returnTo != IntPtr.Zero) { Thread.Sleep(delay); Focus(returnTo); }
         return "OK";
     }
 }
@@ -98,11 +114,18 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         $parts = $line.Trim().Split('|')
         switch ($parts[0]) {
             'STATUS' {
-                $ok = [SkyKeys]::FindGame() -ne [IntPtr]::Zero
-                $out = if ($ok) { 'STATUS:1' } else { 'STATUS:0' }
+                $out = if ([SkyKeys]::FindGame() -ne [IntPtr]::Zero) { 'STATUS:1' } else { 'STATUS:0' }
             }
             'RUN' {
-                $out = [SkyKeys]::RunBat($parts[1], [uint16]$parts[2], [int]$parts[3])
+                $ret = if ($parts.Length -gt 4) { [IntPtr][long]$parts[4] } else { [IntPtr]::Zero }
+                $out = [SkyKeys]::RunBat($parts[1], [uint16]$parts[2], [int]$parts[3], $ret)
+            }
+            'FOCUSGAME' {
+                $g = [SkyKeys]::FindGame()
+                $out = if ($g -eq [IntPtr]::Zero) { 'ERR:Skyrim SE is not running' } elseif ([SkyKeys]::Focus($g)) { 'OK' } else { 'ERR:Could not focus Skyrim' }
+            }
+            'FOCUS' {
+                $out = if ([SkyKeys]::Focus([IntPtr][long]$parts[1])) { 'OK' } else { 'ERR:Could not focus window' }
             }
             default { $out = 'ERR:Unknown command' }
         }

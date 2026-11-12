@@ -30,9 +30,17 @@ npm start
 2. `bridge/SkyrimBridge.ps1` (a small C# helper compiled on the fly by PowerShell) focuses `SkyrimSE.exe`. It opens the console with the scan code for `~` and types `bat dovahtrainer`, then Enter, then closes the console.
 3. Keys go through `SendInput` with `KEYEVENTF_SCANCODE`. Skyrim reads input through DirectInput, and DirectInput only sees scan codes, so plain virtual keys wouldn't work.
 
+## In-game overlay
+
+The trainer runs as an overlay on top of Skyrim, not as a separate window.
+
+- Press **Insert** anywhere to open or close it. **Esc**, the ✕ button, or clicking the dimmed game behind the panel also closes it.
+- It stays on top of the game and doesn't show in the taskbar. Quit from the tray icon or **Settings → Quit trainer**.
+- Launching it a second time just opens the existing overlay.
+- **Skyrim must run in Borderless Windowed.** Nothing can draw over exclusive fullscreen. If yours is in fullscreen, the trainer shows a banner with a **Switch to Borderless** button. That button edits `SkyrimPrefs.ini` and saves a `.dovah-backup` copy first. Close Skyrim before using it.
+
 ## Tips
 
-- Play in **Borderless Windowed**. Switching focus away from exclusive fullscreen is slow and unreliable.
 - If the console doesn't open (non-US keyboard), change **Settings → Console key scan code**.
 - If commands get cut off, raise **Key delay**.
 - Hotkeys are **Ctrl+F1 – Ctrl+F8**. Plain F-keys would clash with quicksave and quickload.
