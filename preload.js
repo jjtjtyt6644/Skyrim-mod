@@ -1,0 +1,17 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('trainer', {
+  run: (commands) => ipcRenderer.invoke('run', commands),
+  status: () => ipcRenderer.invoke('status'),
+  getConfig: () => ipcRenderer.invoke('config:get'),
+  setConfig: (patch) => ipcRenderer.invoke('config:set', patch),
+  browseGame: () => ipcRenderer.invoke('config:browse'),
+  detectGame: () => ipcRenderer.invoke('config:detect'),
+  openLink: (url) => ipcRenderer.invoke('open-link', url),
+  window: (action) => ipcRenderer.send('win', action),
+  onHotkey: (fn) => ipcRenderer.on('hotkey', (_e, key) => fn(key)),
+  version: () => ipcRenderer.invoke('version'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdate: (fn) => ipcRenderer.on('update', (_e, info) => fn(info)),
+});
