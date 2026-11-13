@@ -39,6 +39,29 @@ The trainer never reads or monitors the keyboard. There's no PowerShell, no keyb
 - **Restarting Skyrim** resets everything. The next time you open the trainer, it re-applies all your cheats once.
 - **Restore my cheats** in the sidebar (or in the tray menu) re-applies everything on demand.
 
+## Saves & Fixes
+
+- **Auto-Save** (on by default) saves every 5, 10, 15 or 30 minutes into rotating slots `DovahAuto1` to `DovahAuto3`. It only saves while Skyrim is the active window and the panel is closed. The trainer can't read your health, so it can't save at the exact moment before you die; a timed save means a death or crash costs a few minutes at most.
+- **Crash watch:** if Skyrim closes unexpectedly, the trainer tells you which save to load.
+- **One-click bug fixes.** Sources: UESP's *Skyrim:Bugs* page and Nexus/Steam threads.
+  - Stuck controls: `enableplayercontrols`.
+  - Stuck crouching, sitting or at a workbench: `player.tai` ×2.
+  - Stuck in a wall: `tcl`.
+  - "Can't save with enemies nearby": `player.stopcombatalarm`.
+  - Combat music won't stop: `removemusic muscombat`.
+  - Broken character model: `player.sexchange` ×2.
+  - Stuck walking slowly.
+  - Lingering paralysis: `player.dispelallspells`.
+  - Restart a bugged quest: `resetquest`.
+  - **Fix All Common Bugs** runs the safe ones together.
+
+## Mods
+
+- Lists your plugins, with on/off switches that edit `%LOCALAPPDATA%\Skyrim Special Edition\plugins.txt`.
+- **Install a mod from file** takes a .zip or .7z, extracted with the bundled 7-Zip. It finds the Data folder inside the archive, copies the files and enables the plugins. It never overwrites existing files, and refuses installer (FOMOD) mods; use Vortex or MO2 for those. Mods installed this way can be uninstalled cleanly.
+- **Nexus Mods:** paste your personal API key to browse Trending, Latest and Recently updated mods, then open them on Nexus. Adult-flagged mods are hidden. Direct downloads through the API need Nexus Premium, so download from the mod page and use **Install a mod from file**.
+- Mod plugins turn off Steam achievements, and many mods need SKSE.
+
 ## Quests
 
 - Pick a quest from the Main Quest, Companions, College, Thieves Guild or Dark Brotherhood list, then use **Complete** (`completequest <id>`) or **Go to objective** (`movetoqt <id>`). The IDs come from UESP.
@@ -56,9 +79,10 @@ The trainer never reads or monitors the keyboard. There's no PowerShell, no keyb
 
 The trainer runs as an overlay on top of Skyrim, not as a separate window.
 
-- **To open it in game, press Alt+Tab and pick "Dovah Trainer"**, or click its taskbar button. **Esc**, the ✕ button, or clicking the dimmed game behind the panel takes you back to the game.
-- Why not a hotkey like Insert? Skyrim takes the keyboard exclusively, so normal Windows hotkeys never reach other programs while you play. The only way around that is watching the keyboard yourself, which antivirus treats as keylogger behaviour. The trainer doesn't do that.
-- The panel stays on top of the game. Quit from the tray icon or **Settings → Quit trainer**.
+- The trainer always stays on top and never closes by itself. **Esc** or **✕** minimizes it to a small floating **Dovah Trainer** button in the top-right corner. Click the button to open the panel again.
+- Everywhere outside the panel or button is click-through, so the game underneath gets your clicks.
+- Why no hotkey like Insert? Skyrim takes the keyboard exclusively, so normal Windows hotkeys never reach other programs while you play. The only way around that is watching the keyboard yourself, which antivirus treats as keylogger behaviour. The trainer doesn't do that.
+- Quit from the tray icon or **Settings → Quit trainer**.
 - Launching it a second time just opens the existing overlay.
 - **Skyrim must run in Borderless Windowed.** Nothing can draw over exclusive fullscreen. If yours is in fullscreen, the trainer shows a banner with a **Switch to Borderless** button. That button edits `SkyrimPrefs.ini` and saves a `.dovah-backup` copy first. Close Skyrim before using it.
 

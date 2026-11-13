@@ -12,6 +12,13 @@
     fixSubtitles: async () => ({ ok: true }), setAutoSkip: async (on) => on, onAutoSkip: () => {},
     getToggles: async () => ({}), setToggles: async (m) => m, sessionCheck: async () => ({ fresh: false }),
     reapplyDone: async () => {}, onReapply: () => {},
+    mouse: () => {}, saveNow: async () => ({ ok: true }), lastSave: async () => null, onAutoSaved: () => {}, onGameClosed: () => {},
+    mods: {
+      plugins: async () => [{ name: 'Skyrim.esm', official: true, enabled: true }, { name: 'SkyUI_SE.esp', official: false, enabled: true }, { name: 'Alternate Start.esp', official: false, enabled: false }],
+      setPlugin: async () => ({ ok: true }), installed: async () => ({}), install: async () => null, uninstall: async () => ({ ok: true }),
+      nexusList: async () => ({ ok: false, error: 'Add your Nexus Mods API key first' }), nexusValidate: async () => ({ ok: false, error: 'offline preview' }),
+      nexusOpen: async () => {}, nexusPage: async () => {},
+    },
   };
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -66,12 +73,12 @@
     const map = {};
     for (const [k, v] of Object.entries(state.toggles)) {
       const it = items.get(k);
-      if (v && it && !it.native) map[k] = it.persist || 'session';
+      if (v && it && !it.native && it.persist !== 'none') map[k] = it.persist || 'session';
     }
     return api.setToggles(map, !!changedSave);
   }
 
-  const activeToggles = () => Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter((it) => it && !it.native);
+  const activeToggles = () => Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter((it) => it && !it.native && it.persist !== 'none');
 
   // Put the remembered cheats back into the game.
   //   full: everything (Skyrim was restarted); otherwise only save-stored stat cheats (death reload).
@@ -209,6 +216,18 @@
       case 'quest':
         return `<div class="card wide quest" ${k}>${meta(it)}<div class="row"><select class="field wide-field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
           <button class="btn secondary" data-go title="Teleport to this quest's current objective">Go to objective</button><button class="btn" data-done>Complete</button></div></div>`;
+      case 'text':
+        return `<div class="card wide" ${k}>${meta(it)}<div class="row"><input class="field wide-field" placeholder="${esc(it.placeholder || '')}" spellcheck="false">
+          <button class="btn ${it.danger ? 'danger' : ''}" data-act>${esc(it.label)}</button></div></div>`;
+      case 'autosave': {
+        const c = state.config || {};
+        const mins = Number(c.autosaveMinutes) || 10;
+        return `<div class="card wide toggle ${c.autosave !== false ? 'on' : ''}" ${k} id="autosave-card">${meta(it)}
+          <div class="row"><select class="field" id="autosave-mins" style="width:150px">${[5, 10, 15, 30].map((m) => `<option value="${m}" ${m === mins ? 'selected' : ''}>Every ${m} min</option>`).join('')}</select>
+          <div class="switch"></div></div></div>`;
+      }
+      case 'savenow':
+        return `<div class="card" ${k}>${meta(it)}<button class="btn" data-act>Save now</button></div>`;
       case 'questid':
         return `<div class="card wide quest" ${k}>${meta(it)}<div class="row"><input class="field wide-field" placeholder="Quest ID, e.g. DA01" spellcheck="false">
           <button class="btn secondary" data-go>Go to objective</button><button class="btn" data-done>Complete</button></div></div>`;
@@ -240,9 +259,45 @@
           go(state.tab);
         });
       } else if (it.type === 'button') {
-        $('[data-act]', card).addEventListener('click', () => {
+        $('[data-act]', card).addEventListener('click', async () => {
+          let cmds = it.cmds;
+          if (it.dynamic === 'loadLatest') {
+            const last = await api.lastSave();
+            if (!last) return toast('No trainer save yet', 'Turn on Auto-Save or use Save Now first', true);
+            cmds = [`load ${last.name}`];
+          }
           if (it.danger && !confirm(`${it.name}?\n\n${it.desc}`)) return;
-          run(it.cmds, it.name, card);
+          run(cmds, it.name, card);
+        });
+      } else if (it.type === 'text') {
+        const inp = $('input', card);
+        const go = () => {
+          const v = inp.value.trim();
+          if (!it.pattern.test(v)) return toast('Check the value', it.placeholder || 'Invalid input', true);
+          if (it.danger && !confirm(`${it.name}: ${v}?\n\n${it.desc}`)) return;
+          run(it.cmds(v), `${it.name}: ${v}`, card);
+        };
+        $('[data-act]', card).addEventListener('click', go);
+        inp.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+      } else if (it.type === 'autosave') {
+        $('#autosave-mins', card).addEventListener('click', (e) => e.stopPropagation());
+        $('#autosave-mins', card).addEventListener('change', async (e) => {
+          state.config = await api.setConfig({ autosaveMinutes: Number(e.target.value) });
+          toast('Auto-save interval saved', `Every ${e.target.value} minutes`);
+        });
+        card.addEventListener('click', async (e) => {
+          if (e.target.closest('select')) return;
+          state.config = await api.setConfig({ autosave: state.config.autosave === false });
+          card.classList.toggle('on', state.config.autosave !== false);
+          toast(state.config.autosave !== false ? 'Auto-Save on' : 'Auto-Save off', state.config.autosave !== false ? `Saving every ${state.config.autosaveMinutes || 10} minutes while you play` : 'No timed saves');
+        });
+      } else if (it.type === 'savenow') {
+        $('[data-act]', card).addEventListener('click', async () => {
+          card.classList.add('busy');
+          const res = await api.saveNow();
+          card.classList.remove('busy');
+          log('Save Now', ['save DovahAuto…'], res);
+          toast(res.ok ? 'Game saved' : 'Could not save', res.ok ? 'Saved to a DovahAuto slot' : res.error, !res.ok);
         });
       } else if (it.type === 'number') {
         const inp = $('input', card);
@@ -335,6 +390,28 @@
         </div>`;
     },
 
+    mods() {
+      const c = state.config || {};
+      return `
+        <div class="notice"><b>Heads up:</b> loading mod plugins turns off Steam achievements, and many mods also need SKSE.
+          This is a simple manager: it installs plain .zip/.7z mods, never overwrites existing files, and leaves installer
+          (FOMOD) mods to Vortex or Mod Organizer 2. Restart Skyrim after changing plugins.</div>
+        <section class="section"><div class="section-title">Installed plugins</div>
+          <div class="card wide"><div class="meta"><h4>Install a mod from file</h4><p>Pick a .zip or .7z you downloaded (e.g. via "Manual download" on Nexus). Its files go into your Data folder and its plugins are switched on.</p></div>
+            <button class="btn" id="mod-install">Choose file…</button></div>
+          <div class="plugin-list" id="plugin-list"><div class="empty-note">Loading plugins…</div></div>
+          <div id="trainer-mods"></div>
+        </section>
+        <section class="section"><div class="section-title">Nexus Mods</div>
+          <div class="card wide"><div class="meta"><h4>Nexus Mods API key <span id="nx-user" class="pill-ok"></span></h4>
+            <p>Lets the trainer list mods from Nexus. Get your personal key from your Nexus account's API Keys page. It's stored only on this PC.</p></div>
+            <div class="row"><input class="field wide-field" id="nx-key" type="password" placeholder="Paste your API key" value="${esc(c.nexusKey || '')}" spellcheck="false">
+            <button class="btn secondary" id="nx-get">Get a key</button><button class="btn" id="nx-save">Save</button></div></div>
+          <div class="seg" id="nx-tabs"><button data-kind="trending" class="on">Trending</button><button data-kind="latest">Latest</button><button data-kind="updated">Recently updated</button></div>
+          <div class="nexus-grid" id="nx-grid"><div class="empty-note">Add your API key to browse mods.</div></div>
+        </section>`;
+    },
+
     console() {
       const quick = ['tgm', 'tcl', 'tfc', 'tmm 1', 'psb', 'killall', 'player.setav speedmult 100', 'coc qasmoke', 'resurrect', 'help'];
       return `
@@ -360,7 +437,7 @@
             <input class="field" id="delay" type="number" min="15" max="300" value="${c.keyDelay}" style="width:90px"></div>
           <div class="card" style="--i:3"><div class="meta"><h4>Activate key scan code</h4><p>Used to skip dialogue. 0x12 is E. Change it if you rebound Activate in game.</p></div>
             <input class="field" id="act-scan" value="0x${Number(c.activateScan ?? 0x12).toString(16).toUpperCase()}" style="width:90px"></div>
-          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats while the trainer is open. Skyrim blocks normal hotkeys while you play, and the trainer never monitors your keyboard, so in game use Alt+Tab to open it.</p></div><div class="switch"></div></div>
+          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats while the trainer panel is open. Skyrim blocks normal hotkeys while you play, and the trainer never monitors your keyboard, so use the floating button to open it.</p></div><div class="switch"></div></div>
         </div></section>
         <section class="section"><div class="section-title">Keeping cheats on</div><div class="grid">
           <div class="card wide toggle ${c.checkpoint !== false ? 'on' : ''}" id="cp"><div class="meta"><h4>Checkpoint save when returning to the game</h4>
@@ -372,13 +449,87 @@
             <div class="row"><button class="btn frost" id="upd-check">Check for updates</button><button class="btn" id="upd-notes">Release notes</button><button class="ghost" data-win="quit">Quit trainer</button></div></div>
         </div></section>
         <section class="section"><div class="section-title">Hotkey map</div><div class="grid">
-          ${[['Alt+Tab', 'Open trainer in game (pick "Dovah Trainer")'], ['Esc', 'Back to game'], ...[...hotkeys].map(([k, it]) => [k, it.name])]
+          ${[['Button', 'Floating "Dovah Trainer" button (top-right) opens the panel'], ['Esc', 'Minimize to the button'], ...[...hotkeys].map(([k, it]) => [k, it.name])]
             .map(([k, name], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">${k}</span><div class="meta"><h4>${esc(name)}</h4></div></div>`).join('')}
         </div></section>`;
     },
   };
 
   const BIND = {
+    async mods() {
+      const m = api.mods;
+      const renderPlugins = async () => {
+        const list = await m.plugins();
+        const box = $('#plugin-list');
+        if (!box) return;
+        if (!list.length) { box.innerHTML = '<div class="empty-note">No plugins found. Check the game folder in Settings.</div>'; return; }
+        box.innerHTML = list.map((p) => `<div class="plugin ${p.enabled ? 'on' : ''} ${p.official ? 'official' : ''}" data-name="${esc(p.name)}">
+          <span class="pname">${esc(p.name)}</span>${p.official ? '<span class="ptag">Official</span>' : '<div class="switch"></div>'}</div>`).join('');
+        $$('.plugin:not(.official)', box).forEach((row) => row.addEventListener('click', async () => {
+          const on = !row.classList.contains('on');
+          const r = await m.setPlugin(row.dataset.name, on);
+          if (!r.ok) return toast('Could not change plugin', r.error, true);
+          row.classList.toggle('on', on);
+          toast(`${row.dataset.name} ${on ? 'enabled' : 'disabled'}`, 'Restart Skyrim to apply');
+        }));
+      };
+      const renderInstalled = async () => {
+        const inst = await m.installed();
+        const names = Object.keys(inst);
+        const box = $('#trainer-mods');
+        if (!box) return;
+        box.innerHTML = names.length ? `<div class="section-title" style="margin-top:16px">Installed by the trainer</div>` + names.map((n) => `
+          <div class="card wide"><div class="meta"><h4>${esc(n)}</h4><p>${inst[n].files.length} files${inst[n].plugins.length ? ' · ' + inst[n].plugins.map(esc).join(', ') : ''}</p></div>
+          <button class="btn danger" data-un="${esc(n)}">Uninstall</button></div>`).join('') : '';
+        $$('[data-un]', box).forEach((b) => b.addEventListener('click', async () => {
+          if (!confirm(`Uninstall ${b.dataset.un}?\n\nIts files are deleted from your Data folder.`)) return;
+          const r = await m.uninstall(b.dataset.un);
+          toast(r.ok ? 'Mod uninstalled' : 'Could not uninstall', r.ok ? b.dataset.un : r.error, !r.ok);
+          renderInstalled(); renderPlugins();
+        }));
+      };
+      $('#mod-install').addEventListener('click', async () => {
+        const r = await m.install();
+        if (!r) return;
+        if (!r.ok) return toast('Not installed', r.error, true);
+        toast(`Installed ${r.name}`, `${r.files.length} files${r.plugins.length ? ', plugins enabled: ' + r.plugins.join(', ') : ''}`);
+        log(`Installed mod: ${r.name}`, [`${r.files.length} files`], { ok: true });
+        renderInstalled(); renderPlugins();
+      });
+
+      // Nexus
+      let kind = 'trending';
+      const grid = () => $('#nx-grid');
+      const loadNexus = async () => {
+        if (!grid()) return;
+        if (!state.config.nexusKey) { grid().innerHTML = '<div class="empty-note">Add your API key to browse mods.</div>'; return; }
+        grid().innerHTML = '<div class="empty-note">Loading from Nexus…</div>';
+        const r = await m.nexusList(kind);
+        if (!grid()) return;
+        if (!r.ok) { grid().innerHTML = `<div class="empty-note err">${esc(r.error)}</div>`; return; }
+        grid().innerHTML = r.mods.map((x) => `<div class="nx-card">
+          ${x.picture ? `<img src="${esc(x.picture)}" alt="" loading="lazy">` : '<div class="nx-noimg"></div>'}
+          <div class="nx-body"><h5>${esc(x.name)}</h5><p class="nx-by">by ${esc(x.author || 'unknown')} · v${esc(x.version || '?')} · ${Number(x.endorsements || 0).toLocaleString()} endorsements</p>
+          <p class="nx-sum">${esc(x.summary || '')}</p><button class="btn secondary" data-nx="${Number(x.id)}">Open on Nexus</button></div></div>`).join('') || '<div class="empty-note">Nothing here right now.</div>';
+        $$('[data-nx]', grid()).forEach((b) => b.addEventListener('click', () => m.nexusOpen(b.dataset.nx)));
+      };
+      $('#nx-get').addEventListener('click', () => m.nexusPage('apikey'));
+      $('#nx-save').addEventListener('click', async () => {
+        const key = $('#nx-key').value.trim();
+        const v = key ? await m.nexusValidate(key) : { ok: true };
+        if (!v.ok) return toast('Key not accepted', v.error, true);
+        state.config = await api.setConfig({ nexusKey: key });
+        $('#nx-user').textContent = v.name ? `● ${v.name}${v.premium ? ' (Premium)' : ''}` : '';
+        toast(key ? 'Nexus key saved' : 'Nexus key removed', v.name ? `Signed in as ${v.name}` : '');
+        loadNexus();
+      });
+      $$('#nx-tabs button').forEach((b) => b.addEventListener('click', () => {
+        $$('#nx-tabs button').forEach((x) => x.classList.toggle('on', x === b));
+        kind = b.dataset.kind; loadNexus();
+      }));
+      renderPlugins(); renderInstalled(); loadNexus();
+    },
+
     shop() {
       $('#pay').addEventListener('click', () => { state.payWithGold = !state.payWithGold; store.set('payWithGold', state.payWithGold); go('shop'); });
       $$('.item').forEach((el) => {
@@ -537,19 +688,40 @@
 
   // ---------------- Wiring ----------------
   $$('[data-win]').forEach((b) => b.addEventListener('click', () => api.window(b.dataset.win)));
-  $('#backdrop').addEventListener('click', () => api.window('hide'));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !e.target.closest('input, select')) api.window('hide');
   });
   api.onOverlay((open) => {
     document.body.classList.toggle('open', open);
     if (open) { refreshStatus(); requestAnimationFrame(moveIndicator); }
+    setCapture(false); // re-evaluated on the next mouse move
+  });
+
+  // Click-through: the overlay window covers the screen but only the panel (when open)
+  // or the floating button (when collapsed) take mouse clicks; everything else goes to
+  // the game underneath.
+  let capturing = null;
+  function setCapture(on) { if (on !== capturing) { capturing = on; api.mouse(on); } }
+  document.addEventListener('mousemove', (e) => {
+    const open = document.body.classList.contains('open');
+    const hit = open ? e.target.closest('#panel') : e.target.closest('#dock');
+    setCapture(!!hit);
+  });
+  document.addEventListener('mouseleave', () => setCapture(false));
+  $('#dock').addEventListener('click', () => api.window('show'));
+
+  api.onAutoSaved(({ name, reason }) => {
+    log(reason === 'timer' ? 'Auto-saved' : 'Saved', [`save ${name}`], { ok: true });
+    $('#dock-saved').textContent = `Saved ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  });
+  api.onGameClosed((last) => {
+    toast('Skyrim closed', last ? `If it crashed, load "${last.name}" (Saves & Fixes → Load Latest Auto-Save)` : 'Turn on Auto-Save so a crash never costs you progress', !last);
   });
   $('#fix-display').addEventListener('click', async () => {
     const r = await api.fixDisplay();
     if (!r.ok) return toast('Could not change display mode', r.error, true);
     $('#display-warn').hidden = true;
-    toast('Skyrim set to Borderless Windowed', 'Start the game, then Alt+Tab to "Dovah Trainer" to open it');
+    toast('Skyrim set to Borderless Windowed', 'Start the game, then click the floating "Dovah Trainer" button');
   });
 
   api.onAutoSkip(({ on, reason }) => {

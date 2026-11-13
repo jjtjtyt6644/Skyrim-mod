@@ -11,6 +11,8 @@ window.ICONS = {
   bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
   scroll: '<path d="M8 3h11a2 2 0 0 1 2 2v1h-4"/><path d="M17 6v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-1h11v1a3 3 0 0 0 3 3"/><path d="M8 3a3 3 0 0 0-3 3v11"/><path d="M9 9h5M9 13h5"/>',
   refresh: '<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/>',
+  wrench: '<path d="M14.7 6.3a4 4 0 0 0 5 5L21 13a6 6 0 0 1-7.6 1.6L6 22l-4-4 7.4-7.4A6 6 0 0 1 11 3l1.7 1.3a4 4 0 0 0 2 2Z"/>',
+  puzzle: '<path d="M10 3h4v2a2 2 0 1 0 4 0V3h3v7h-2a2 2 0 1 0 0 4h2v7h-7v-2a2 2 0 1 0-4 0v2H3v-7h2a2 2 0 1 0 0-4H3V3h7Z"/>',
   bag: '<path d="M6 8h12l1 12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
   x: '<path d="m6 6 12 12M18 6 6 18"/>',

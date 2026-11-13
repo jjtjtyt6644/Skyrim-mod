@@ -3,15 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:" />
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://staticdelivery.nexusmods.com https://*.nexusmods.com" />
   <title>Dovah Trainer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="open">
-  <!-- Dimmed game backdrop: click it to return to the game -->
-  <div id="backdrop" title="Back to game"></div>
+  <!-- Floating button shown while the panel is collapsed. Always on top; click to open. -->
+  <button id="dock" title="Open Dovah Trainer">
+    <svg class="logo" viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+    <span class="dock-text"><b>Dovah Trainer</b><small id="dock-saved">Click to open</small></span>
+  </button>
 
   <div id="panel" role="dialog" aria-label="Dovah Trainer">
     <header id="titlebar">
@@ -20,8 +23,8 @@
       <div class="drag"></div>
       <button id="update-pill" class="update-pill" hidden><i class="fill"></i><span></span></button>
       <div id="status" class="status off"><i></i><span>Searching for Skyrim…</span></div>
-      <div class="hide-hint"><span class="kbd">Esc</span> back to game</div>
-      <button class="close-btn" data-win="hide" aria-label="Back to game" title="Back to game (Esc)"><svg viewBox="0 0 12 12"><path d="m3 3 6 6M9 3 3 9"/></svg></button>
+      <div class="hide-hint"><span class="kbd">Esc</span> minimize</div>
+      <button class="close-btn" data-win="hide" aria-label="Minimize to the floating button" title="Minimize to the floating button (Esc)"><svg viewBox="0 0 12 12"><path d="m3 3 6 6M9 3 3 9"/></svg></button>
     </header>
 
     <div id="display-warn" class="display-warn" hidden>

@@ -1,5 +1,5 @@
 // Dovah Trainer — Electron main process.
-// Runs as an in-game overlay (transparent, always-on-top, opened via Alt+Tab).
+// Runs as an in-game overlay (transparent, always on top, collapses to a floating button).
 // Cheats are written to <Skyrim>\dovahtrainer.txt and native.js types
 // "bat dovahtrainer" into the game console.
 const { app, BrowserWindow, ipcMain, globalShortcut, shell, dialog, screen, Tray, Menu, nativeImage } = require('electron');
@@ -7,6 +7,7 @@ const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const native = require('./native');
+const mods = require('./mods');
 
 const BAT_NAME = 'dovahtrainer';
 const TOGGLE_KEY = 'Insert';
@@ -19,6 +20,11 @@ const DEFAULTS = {
   toggles: {},
   appliedPid: 0,     // Skyrim process the session toggles were last applied to
   checkpoint: true,  // save "DovahCheats" after re-applying, so dying reloads a save that has them
+  autosave: true,    // timed saves into DovahAuto1..3 while you play
+  autosaveMinutes: 10,
+  lastAutoSave: null,
+  nexusKey: '',      // the user's personal Nexus Mods API key (stored only on this PC)
+  installedMods: {}, // { modName: { files: [relative paths under Data], plugins: [...], at } }
 };
 const REAPPLY_GAP_MS = 60 * 1000;
 const ALLOWED_LINKS = new Set([
@@ -175,8 +181,10 @@ function maybeReapply(when) {
 }
 
 // ---------- overlay ----------
-// The overlay closes when you go back to Skyrim, but not when some other app (Discord,
-// Medal, Overwolf, a notification) briefly takes focus — that used to make it vanish.
+// The overlay window is always shown and always on top. It is click-through everywhere
+// except over the panel (expanded) or the small floating button (collapsed), so you can
+// keep playing around it. Nothing closes it automatically; ✕/Esc collapses it to the
+// button, and clicking the button opens it again. (No Alt+Tab needed.)
 let holdCount = 0;
 const dbg = (...a) => { if (process.env.DOVAH_DEBUG) console.log(new Date().toISOString().slice(17, 23), ...a); };
 async function holdOpen(fn) {
@@ -189,34 +197,41 @@ function fitToScreen() {
   win.setBounds(d.bounds);
 }
 
+function ensureVisible() {
+  if (!win) return;
+  win.setAlwaysOnTop(true, 'screen-saver');
+  if (!win.isVisible()) win.showInactive();
+}
+
+// Expand the panel and give it keyboard focus.
 async function showOverlay() {
   if (!win) return;
-  fitToScreen();
+  ensureVisible();
   overlayOpen = true;
-  win.setAlwaysOnTop(true, 'screen-saver');
+  win.webContents.send('overlay', true);
   await holdOpen(async () => {
-    win.show();
     win.focus();
-    win.webContents.send('overlay', true);
     // Skyrim holds the foreground; take it back so the cursor is freed.
     await native.focusWindow(hwnd());
   });
-  dbg('showOverlay done', { visible: win.isVisible(), minimized: win.isMinimized(), focused: win.isFocused() });
   maybeReapply('open');
 }
 
-function hideOverlay(returnToGame = true) {
-  dbg('hideOverlay', { returnToGame, overlayOpen, holdCount });
+// Collapse to the floating button (the window itself stays up, on top).
+async function hideOverlay(returnToGame = true) {
+  dbg('collapse', { returnToGame, overlayOpen });
   if (!win || !overlayOpen) return;
   overlayOpen = false;
   win.webContents.send('overlay', false);
-  setTimeout(async () => {
-    if (overlayOpen) return; // reopened during the animation
-    win.hide();
-    // Back to the game; an error just means it isn't running.
-    if (returnToGame) await native.focusGame();
-    maybeReapply('return');
-  }, 180);
+  // Back to the game; an error just means it isn't running.
+  if (returnToGame) await native.focusGame();
+  maybeReapply('return');
+}
+
+// Keep the overlay pinned on top: other topmost windows (e.g. game overlays) can push
+// it down, and Windows can drop the topmost flag after a fullscreen switch.
+function keepOnTop() {
+  setInterval(() => { if (win && !quitting) { ensureVisible(); win.moveTop(); } }, 3000);
 }
 
 const toggleOverlay = () => (overlayOpen ? hideOverlay() : showOverlay());
@@ -290,9 +305,10 @@ function refreshHotkeys() { const was = hotkeysActive; hotkeysActive = !was; set
 function createTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'icon.png')).resize({ width: 16, height: 16 });
   tray = new Tray(img);
-  tray.setToolTip('Dovah Trainer: Alt+Tab to it in game');
+  tray.setToolTip('Dovah Trainer');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show / hide trainer', click: toggleOverlay },
+    { label: 'Open / collapse trainer', click: toggleOverlay },
+    { label: 'Save game now', click: () => autoSaveNow('manual') },
     { label: 'Re-apply my cheats now', click: () => win?.webContents.send('reapply', { full: true, checkpoint: false }) },
     { type: 'separator' },
     { label: 'Quit Dovah Trainer', click: () => { quitting = true; app.quit(); } },
@@ -330,69 +346,67 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', async () => {
-    // Don't pop up over a game in progress; just say how to open it.
-    if (native.gameRunning()) {
-      tray?.displayBalloon({ iconType: 'info', title: 'Dovah Trainer is running', content: 'In game, press Alt+Tab and pick "Dovah Trainer" to open it.' });
-    } else {
-      // Startup shuffles focus (tray, launcher); don't let that auto-hide the overlay.
-      holdCount++;
-      setTimeout(() => { holdCount--; }, 2500);
-      showOverlay();
-    }
+  win.once('ready-to-show', () => {
+    fitToScreen();
+    win.setIgnoreMouseEvents(true, { forward: true }); // click-through until the mouse is over the panel/button
+    ensureVisible();
+    // Game already running: start collapsed so we don't cover it. Otherwise open.
+    if (native.gameRunning()) win.webContents.send('overlay', false);
+    else showOverlay();
   });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); hideOverlay(); } });
-  // Focus already went somewhere else (game or another app): just get out of the way.
   win.on('focus', () => dbg('focus'));
-  win.on('blur', () => {
-    dbg('blur', { overlayOpen, holdCount });
-    if (!overlayOpen || holdCount > 0) return;
-    // Only close when the player actually went back to Skyrim. Pop-ups from Discord,
-    // Medal, Overwolf etc. used to steal focus and make the trainer disappear.
-    setTimeout(() => {
-      if (!overlayOpen || holdCount > 0) return;
-      let fg = '';
-      try { fg = native.foregroundProcess(); } catch { /* ignore */ }
-      if (fg === 'SkyrimSE') hideOverlay(false);
-    }, 200);
-  });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  screen.on('display-metrics-changed', () => fitToScreen());
 }
 
-// ---------- Alt+Tab / taskbar launcher ----------
-// Skyrim takes the keyboard exclusively, so no normal hotkey reaches the trainer while
-// you play, and watching the keyboard ourselves looks like a keylogger to antivirus.
-// Instead, a minimized "Dovah Trainer" window sits in the taskbar and the Alt+Tab list
-// (Alt+Tab works in borderless Skyrim). Switching to it opens the overlay.
-let launcher = null;
-function createLauncher() {
-  launcher = new BrowserWindow({
-    title: 'Dovah Trainer (open trainer)', width: 320, height: 80, x: -32000, y: -32000,
-    show: false, frame: false, resizable: false, skipTaskbar: false, focusable: true,
-    backgroundColor: '#07090d', icon: path.join(__dirname, 'renderer', 'icon.png'),
-    webPreferences: { sandbox: true, contextIsolation: true },
-  });
-  launcher.loadURL('data:text/html,<title>Dovah Trainer (open trainer)</title>');
-  launcher.on('page-title-updated', (e) => e.preventDefault());
-  launcher.minimize();
-  // Debounced: opening the overlay moves focus around, which must not re-trigger this.
-  let lastOpen = 0;
-  const open = (ev) => {
-    dbg('launcher', ev?.type || 'event', { overlayOpen, sinceLast: Date.now() - lastOpen, minimized: launcher.isMinimized() });
-    if (overlayOpen || Date.now() - lastOpen < 1000) return;
-    lastOpen = Date.now();
-    setTimeout(() => {
-      if (!launcher.isMinimized()) launcher.minimize();
-      showOverlay();
-    }, 60);
-  };
-  // Start listening once the minimized window has settled after launch.
-  setTimeout(() => {
-    launcher.on('focus', open);
-    launcher.on('restore', open);
-  }, 1500);
-  launcher.on('close', (e) => { if (!quitting) { e.preventDefault(); launcher.minimize(); } });
+// ---------- auto-save & crash watch ----------
+// The trainer can't see your health, so "save right before you die" isn't possible.
+// What works: save on a timer into rotating slots (DovahAuto1..3), only while you're
+// actually in the game, and warn you if Skyrim closes unexpectedly.
+const AUTOSAVE_SLOTS = 3;
+let lastAutoSave = 0;
+let autoSaveSlot = 0;
+let lastGamePid = 0;
+
+async function autoSaveNow(reason) {
+  if (!isGameDir(config.gamePath) || !native.gameRunning()) return { ok: false, error: 'Skyrim is not running' };
+  autoSaveSlot = (autoSaveSlot % AUTOSAVE_SLOTS) + 1;
+  const name = `DovahAuto${autoSaveSlot}`;
+  const res = await runCommands([`save ${name}`]);
+  if (res.ok) {
+    lastAutoSave = Date.now();
+    config.lastAutoSave = { name, at: lastAutoSave };
+    saveConfig();
+    win?.webContents.send('autosaved', { name, at: lastAutoSave, reason });
+  }
+  return res;
+}
+
+function startAutoSave() {
+  setInterval(() => {
+    const pid = native.gamePid();
+    // Crash watch: the game process went away.
+    if (lastGamePid && !pid && !quitting) {
+      const last = config.lastAutoSave;
+      const ago = last ? Math.round((Date.now() - last.at) / 60000) : null;
+      tray?.displayBalloon({
+        iconType: 'warning', title: 'Skyrim closed',
+        content: last ? `If it crashed, your latest trainer save is "${last.name}" (${ago} min ago). Load it from the Load menu.` : 'If it crashed, turn on Auto-Save in the Fixes tab next time.',
+      });
+      win?.webContents.send('game-closed', last || null);
+    }
+    lastGamePid = pid;
+    // Timed auto-save: only while Skyrim is the active window and the panel is closed,
+    // so it never steals focus from something else you're doing.
+    const mins = Number(config.autosaveMinutes) || 0;
+    if (!pid || !config.autosave || mins <= 0 || overlayOpen) return;
+    if (Date.now() - lastAutoSave < mins * 60000) return;
+    let fg = '';
+    try { fg = native.foregroundProcess(); } catch { /* ignore */ }
+    if (fg === 'SkyrimSE') autoSaveNow('timer');
+  }, 5000);
 }
 
 app.on('second-instance', () => showOverlay());
@@ -401,9 +415,11 @@ app.whenReady().then(async () => {
   loadConfig();
   if (!isGameDir(config.gamePath)) { config.gamePath = await detectGamePath(); saveConfig(); }
   startHotkeys();
-  createLauncher();
   createWindow();
   createTray();
+  keepOnTop();
+  startAutoSave();
+  lastAutoSave = Date.now(); // first timed save one interval after launch
 
   ipcMain.handle('run', (_e, cmds) => runCommands(cmds));
   ipcMain.handle('status', async () => ({
@@ -416,6 +432,44 @@ app.whenReady().then(async () => {
   ipcMain.handle('display:fix', () => makeBorderless());
   ipcMain.handle('subtitles:fix', () => enableSubtitles());
   ipcMain.handle('autoskip:set', (_e, on) => { setAutoSkip(!!on, 'user'); return skip.auto; });
+  // Click-through: the renderer tells us when the mouse is over the panel or button.
+  ipcMain.on('mouse', (_e, capture) => win?.setIgnoreMouseEvents(!capture, { forward: true }));
+  ipcMain.handle('save:now', () => autoSaveNow('manual'));
+  ipcMain.handle('save:last', () => config.lastAutoSave || null);
+
+  // ---- mods ----
+  ipcMain.handle('mods:plugins', () => mods.listPlugins(config.gamePath));
+  ipcMain.handle('mods:setPlugin', (_e, name, on) => mods.setPlugin(config.gamePath, name, on));
+  ipcMain.handle('mods:installed', () => config.installedMods || {});
+  ipcMain.handle('mods:install', async () => {
+    const r = await holdOpen(() => dialog.showOpenDialog(win, { title: 'Pick a downloaded mod archive', properties: ['openFile'], filters: [{ name: 'Mod archives', extensions: ['zip', '7z'] }] }));
+    if (r.canceled || !r.filePaths[0]) return null;
+    try {
+      const info = await mods.installArchive(config.gamePath, r.filePaths[0], path.join(app.getPath('temp'), 'dovah-mod-install'));
+      config.installedMods = { ...(config.installedMods || {}), [info.name]: info };
+      saveConfig();
+      return { ok: true, ...info };
+    } catch (e) { return { ok: false, error: e.message }; }
+  });
+  ipcMain.handle('mods:uninstall', (_e, name) => {
+    const info = (config.installedMods || {})[name];
+    if (!info) return { ok: false, error: 'Not installed by the trainer' };
+    try { mods.uninstall(config.gamePath, info); } catch (e) { return { ok: false, error: e.message }; }
+    delete config.installedMods[name];
+    saveConfig();
+    return { ok: true };
+  });
+  ipcMain.handle('nexus:list', (_e, kind) => mods.nexusList(config.nexusKey, kind));
+  ipcMain.handle('nexus:validate', (_e, key) => mods.nexusValidate(key));
+  ipcMain.handle('nexus:open', (_e, modId) => {
+    const id = Number(modId);
+    if (Number.isInteger(id) && id > 0) shell.openExternal(`https://www.nexusmods.com/skyrimspecialedition/mods/${id}`);
+  });
+  ipcMain.handle('nexus:openPage', (_e, which) => {
+    const pages = { apikey: 'https://next.nexusmods.com/settings/api-keys', site: 'https://www.nexusmods.com/skyrimspecialedition' };
+    if (pages[which]) shell.openExternal(pages[which]);
+  });
+
   ipcMain.handle('toggles:get', () => config.toggles || {});
   ipcMain.handle('toggles:set', (_e, map, changedSave) => {
     const clean = {};
@@ -439,7 +493,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('config:get', () => config);
   ipcMain.handle('config:set', (_e, patch) => {
-    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys', 'checkpoint'];
+    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys', 'checkpoint', 'autosave', 'autosaveMinutes', 'nexusKey'];
     for (const k of allowed) if (k in patch) config[k] = patch[k];
     saveConfig();
     refreshHotkeys();
@@ -468,6 +522,7 @@ app.whenReady().then(async () => {
   setupUpdater();
   ipcMain.on('win', (_e, action) => {
     if (action === 'hide') hideOverlay();
+    else if (action === 'show') showOverlay();
     else if (action === 'quit') { quitting = true; app.quit(); }
   });
 });

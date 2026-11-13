@@ -152,6 +152,59 @@ window.TABS = [
     ],
   },
   {
+    id: 'fixes', label: 'Saves & Fixes', icon: 'wrench', blurb: 'Auto-save so a crash or death costs you nothing, plus one-click fixes for common Skyrim bugs',
+    sections: [
+      {
+        title: 'Saves',
+        items: [
+          { type: 'autosave', name: 'Auto-Save', desc: 'Saves on a timer into three rotating slots (DovahAuto1–3) while you play, so a crash or a bad death never costs you more than a few minutes. It only saves while Skyrim is the active window and the trainer panel is closed. The trainer also warns you if Skyrim closes unexpectedly.' },
+          { type: 'savenow', name: 'Save Now', desc: 'Make a save right away, e.g. before a hard fight or a risky cheat.' },
+          { type: 'button', name: 'Load Latest Auto-Save', desc: 'Loads the newest DovahAuto save. Unsaved progress is lost.', label: 'Load', danger: true, dynamic: 'loadLatest' },
+        ],
+      },
+      {
+        title: 'Stuck',
+        items: [
+          // Sources: UESP Skyrim:Bugs, Nexus/Steam threads (see README).
+          { type: 'button', name: 'Can’t Move / Controls Locked', desc: 'After a cutscene, a crafting station, mining or a mod menu you can’t move, attack or open menus. Re-enables all player controls.', label: 'Fix', cmds: ['enableplayercontrols'] },
+          { type: 'button', name: 'Stuck Crouching, Sitting or at a Workbench', desc: 'Can’t stand up, can’t use crafting stations or interact with anything. Resets your character’s AI (toggled off and back on), which makes you stand and interact again.', label: 'Fix', cmds: ['player.tai', 'player.tai', 'enableplayercontrols'] },
+          { type: 'toggle', id: 'unstuck', persist: 'none', name: 'Stuck in a Wall, Rock or the Ground', desc: 'Turn on, walk out of whatever you’re stuck in, then turn it off again (collision off while on).', on: ['tcl'], off: ['tcl'] },
+          { type: 'button', name: 'Stuck Walking Slowly', desc: 'Your speed is stuck low after a spell, a mod or a bugged effect. Resets movement speed to normal.', label: 'Fix', cmds: ['player.setav speedmult 100', 'player.modav carryweight 1', 'player.modav carryweight -1'] },
+          { type: 'button', name: 'Frozen by a Lingering Spell', desc: 'Paralysis or another effect that never wore off. Removes all active spell effects on you.', label: 'Fix', cmds: ['player.dispelallspells'] },
+        ],
+      },
+      {
+        title: 'Combat & Saving',
+        items: [
+          { type: 'button', name: '"You Can’t Save With Enemies Nearby"', desc: 'The game thinks you’re still in combat. Calls off everyone hunting you and stops the battle music.', label: 'Fix', cmds: ['player.stopcombatalarm', 'removemusic muscombat'] },
+          { type: 'button', name: 'Combat Music Won’t Stop', desc: 'Battle music keeps playing after the fight ended.', label: 'Fix', cmds: ['removemusic muscombat'] },
+        ],
+      },
+      {
+        title: 'Visuals & Camera',
+        items: [
+          { type: 'button', name: 'Character Looks Broken', desc: 'Invisible body parts, wrong textures or a stretched model. Forces your character to re-render.', label: 'Fix', cmds: ['player.sexchange', 'player.sexchange'] },
+          { type: 'toggle', id: 'fixcam', persist: 'none', name: 'Camera Stuck Floating', desc: 'Free camera got left on. Toggles it; flip again if it made things worse.', on: ['tfc'], off: ['tfc'] },
+          { type: 'toggle', id: 'fixhud', persist: 'none', name: 'HUD or Menus Disappeared', desc: 'Toggles the HUD back on; flip again if it hid it instead.', on: ['tm'], off: ['tm'] },
+          { type: 'button', name: 'Health / Magicka / Stamina Stuck Empty', desc: 'Refills all three bars.', label: 'Fix', cmds: ['player.restoreav health 100000', 'player.restoreav magicka 100000', 'player.restoreav stamina 100000'] },
+        ],
+      },
+      {
+        title: 'Quests',
+        items: [
+          { type: 'text', name: 'Restart a Bugged Quest', desc: 'A quest won’t progress? Restart it from the beginning by its ID (UESP lists it on the quest page). Quick Save first.', placeholder: 'Quest ID, e.g. MQ103', label: 'Restart', pattern: /^[A-Za-z0-9_]{2,40}$/, danger: true, cmds: (v) => [`resetquest ${v}`] },
+        ],
+      },
+      {
+        title: 'Everything at Once',
+        items: [
+          { type: 'button', name: 'Fix All Common Bugs', desc: 'Runs the safe fixes together: controls, stuck animation, combat lock, combat music and walking speed.', label: 'Fix all', cmds: ['enableplayercontrols', 'player.tai', 'player.tai', 'player.stopcombatalarm', 'removemusic muscombat', 'player.setav speedmult 100', 'player.modav carryweight 1', 'player.modav carryweight -1'] },
+        ],
+      },
+    ],
+  },
+  { id: 'mods', label: 'Mods', icon: 'puzzle', blurb: 'Your plugins, quick installs and Nexus Mods', custom: 'mods' },
+  {
     id: 'quests', label: 'Quests', icon: 'scroll', blurb: 'Finish quests or jump to their objectives',
     sections: [
       {

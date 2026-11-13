@@ -45,8 +45,21 @@ a { color: var(--accent); }
   opacity: 0; transform: translate(-50%, calc(-50% + 8px));
   transition: opacity var(--med) var(--ease), transform var(--med) var(--ease);
 }
-body.open #backdrop { opacity: 1; }
 body.open #panel { opacity: 1; transform: translate(-50%, -50%); }
+body:not(.open) #panel { pointer-events: none; visibility: hidden; transition: opacity var(--med) var(--ease), transform var(--med) var(--ease), visibility 0s linear var(--med); }
+
+/* Floating button (panel collapsed). Stays on top of the game. */
+#dock {
+  position: fixed; top: 18px; right: 18px; display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px 8px 10px; border-radius: 12px; background: rgba(20, 23, 28, .92); border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45); color: var(--text); text-align: left;
+  opacity: 0; transform: translateY(-6px); pointer-events: none; transition: opacity var(--med) var(--ease), transform var(--med) var(--ease), border-color var(--fast);
+}
+body:not(.open) #dock { opacity: 1; transform: none; pointer-events: auto; }
+#dock:hover { border-color: var(--accent); }
+#dock .logo { width: 22px; height: 22px; }
+.dock-text b { display: block; font-size: 12.5px; font-weight: 600; }
+.dock-text small { display: block; font-size: 11px; color: var(--muted); }
 
 /* ---------------- Title bar ---------------- */
 #titlebar { height: 52px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--line); background: var(--surface); }
@@ -211,6 +224,32 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .card.subs.warn { border-color: rgba(229, 83, 75, .4); }
 .card.subs.warn .subs-state { color: var(--bad); }
 .card.subs b { color: var(--text); font-weight: 600; }
+
+/* ---------------- Mods ---------------- */
+.empty-note { color: var(--dim); font-size: 12.5px; padding: 10px 2px; }
+.empty-note.err { color: #f08a84; }
+.plugin-list { margin-top: 10px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; max-height: 320px; overflow-y: auto; }
+.plugin { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--surface); cursor: pointer; transition: background var(--fast); }
+.plugin:last-child { border-bottom: 0; }
+.plugin:hover { background: var(--surface-2); }
+.plugin.official { cursor: default; }
+.plugin .pname { flex: 1; font-size: 13px; font-family: Consolas, 'Cascadia Code', monospace; }
+.plugin .ptag { font-size: 10.5px; color: var(--muted); border: 1px solid var(--line-strong); padding: 0 7px; border-radius: 10px; }
+.plugin.on .switch { background: var(--accent); border-color: var(--accent); }
+.plugin.on .switch::after { transform: translateX(16px); background: #fff; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; margin: 12px 0; }
+.seg button { padding: 6px 14px; font-size: 12.5px; color: var(--muted); border-right: 1px solid var(--line-strong); transition: background var(--fast), color var(--fast); }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--surface-3); color: var(--text); }
+.nexus-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.nx-card { display: flex; flex-direction: column; border-radius: var(--radius); overflow: hidden; background: var(--surface); border: 1px solid var(--line); transition: border-color var(--fast); }
+.nx-card:hover { border-color: var(--line-strong); }
+.nx-card img, .nx-noimg { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--surface-2); display: block; }
+.nx-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.nx-body h5 { font-size: 13.5px; font-weight: 600; }
+.nx-by { font-size: 11.5px; color: var(--muted); }
+.nx-sum { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.nx-body .btn { align-self: flex-start; margin-top: auto; }
 
 /* ---------------- Activity log ---------------- */
 #log { border-left: 1px solid var(--line); padding: 16px 14px; overflow-y: auto; background: var(--surface); }
