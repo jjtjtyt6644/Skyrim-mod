@@ -19,4 +19,9 @@ contextBridge.exposeInMainWorld('trainer', {
   fixSubtitles: () => ipcRenderer.invoke('subtitles:fix'),
   setAutoSkip: (on) => ipcRenderer.invoke('autoskip:set', on),
   onAutoSkip: (fn) => ipcRenderer.on('autoskip', (_e, s) => fn(s)),
+  getToggles: () => ipcRenderer.invoke('toggles:get'),
+  setToggles: (map, changedSave) => ipcRenderer.invoke('toggles:set', map, changedSave),
+  sessionCheck: () => ipcRenderer.invoke('session:check'),
+  reapplyDone: (full) => ipcRenderer.invoke('reapply:done', full),
+  onReapply: (fn) => ipcRenderer.on('reapply', (_e, opts) => fn(opts)),
 });

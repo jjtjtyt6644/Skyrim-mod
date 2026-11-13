@@ -125,6 +125,8 @@ let queue = Promise.resolve();
 function serial(fn) { const job = queue.then(fn); queue = job.catch(() => {}); return job; }
 
 const gameRunning = () => !!findGame();
+// Process id of the running game, so we can tell when Skyrim was restarted.
+const gamePid = () => { const h = findGame(); return h ? windowPid(h) : 0; };
 
 const focusGame = () => serial(async () => {
   const h = findGame();
@@ -162,4 +164,4 @@ const tapIfGame = (scan) => serial(async () => {
   return 'ok';
 });
 
-module.exports = { gameRunning, focusGame, focusWindow, runBat, tapIfGame, foregroundProcess };
+module.exports = { gameRunning, gamePid, focusGame, focusWindow, runBat, tapIfGame, foregroundProcess };

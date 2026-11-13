@@ -10,6 +10,8 @@
     version: async () => 'dev', checkUpdate: async () => ({ dev: true }), installUpdate: async () => {}, onUpdate: () => {},
     onOverlay: () => {}, fixDisplay: async () => ({ ok: true }),
     fixSubtitles: async () => ({ ok: true }), setAutoSkip: async (on) => on, onAutoSkip: () => {},
+    getToggles: async () => ({}), setToggles: async (m) => m, sessionCheck: async () => ({ fresh: false }),
+    reapplyDone: async () => {}, onReapply: () => {},
   };
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -24,7 +26,7 @@
 
   const state = {
     tab: store.get('tab', 'player'),
-    toggles: store.get('toggles', {}),
+    toggles: {}, // loaded from the main process (config.json) in init()
     payWithGold: store.get('payWithGold', true),
     history: store.get('history', []),
     config: null,
@@ -58,6 +60,38 @@
     updateCounts();
   }
 
+  // Remember active toggles in the main process (config.json), so they survive trainer
+  // restarts and can be re-applied after death or a Skyrim restart.
+  function persistToggles(changedSave) {
+    const map = {};
+    for (const [k, v] of Object.entries(state.toggles)) {
+      const it = items.get(k);
+      if (v && it && !it.native) map[k] = it.persist || 'session';
+    }
+    return api.setToggles(map, !!changedSave);
+  }
+
+  const activeToggles = () => Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter((it) => it && !it.native);
+
+  // Put the remembered cheats back into the game.
+  //   full: everything (Skyrim was restarted); otherwise only save-stored stat cheats (death reload).
+  let reapplying = null;
+  function reapply({ full, checkpoint } = {}) {
+    if (reapplying) return reapplying;
+    reapplying = (async () => {
+      const list = activeToggles().filter((it) => full || it.persist === 'save');
+      if (!list.length) { if (full) await api.reapplyDone(true); return true; }
+      const cmds = list.flatMap((it) => it.on);
+      if (checkpoint) cmds.push('save DovahCheats');
+      const res = await api.run(cmds);
+      if (res.ok) await api.reapplyDone(!!full);
+      log(full ? `Restored ${list.length} cheat${list.length > 1 ? 's' : ''}` : `Refreshed ${list.length} cheat${list.length > 1 ? 's' : ''}`, cmds, res);
+      if (!res.ok) toast('Could not restore your cheats', res.error, true);
+      return res.ok;
+    })().finally(() => { reapplying = null; });
+    return reapplying;
+  }
+
   async function setToggle(it, on, card) {
     if (it.native === 'autoskip') {
       if (on && state.subtitles === false) toast('Turn on dialogue subtitles first', 'Skyrim only lets you skip lines with subtitles on (see below)', true);
@@ -65,10 +99,14 @@
       log(`${it.name} ${on ? 'ON' : 'OFF'}`, [on ? 'presses Activate ~1/s for 45 seconds' : 'stopped'], { ok: true });
       return;
     }
+    // First time in this Skyrim session? Restore the remembered cheats before changing one,
+    // otherwise a later restore would flip this toggle back.
+    try { if ((await api.sessionCheck()).fresh) await reapply({ full: true }); } catch { /* ignore */ }
     const ok = await run(on ? it.on : it.off, `${it.name} ${on ? 'ON' : 'OFF'}`, card);
     if (!ok) return;
     state.toggles[it.key] = on;
-    store.set('toggles', state.toggles);
+    if (!on) delete state.toggles[it.key];
+    persistToggles(it.persist === 'save' && on);
     card?.classList.toggle('on', on);
     updateCounts();
   }
@@ -164,7 +202,16 @@
       case 'chips':
         return `<div class="card wide" ${k}>${meta(it)}<div class="chips">${it.options.map((o) => `<button class="chip" data-val="${o}">${esc(it.fmt(o))}</button>`).join('')}</div></div>`;
       case 'select':
-        return `<div class="card wide" ${k}>${meta(it)}<div class="row"><select class="field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select><button class="btn frost" data-act>${esc(it.label)}</button></div></div>`;
+        return `<div class="card wide" ${k}>${meta(it)}<div class="row"><select class="field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select><button class="btn" data-act>${esc(it.label)}</button></div></div>`;
+      case 'pick':
+        return `<div class="card wide" ${k}>${meta(it)}<div class="row"><select class="field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
+          <input class="field num" type="number" min="${it.min}" max="${it.max}" value="${it.value}"><button class="btn" data-act>${esc(it.label)}</button></div></div>`;
+      case 'quest':
+        return `<div class="card wide quest" ${k}>${meta(it)}<div class="row"><select class="field wide-field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
+          <button class="btn secondary" data-go title="Teleport to this quest's current objective">Go to objective</button><button class="btn" data-done>Complete</button></div></div>`;
+      case 'questid':
+        return `<div class="card wide quest" ${k}>${meta(it)}<div class="row"><input class="field wide-field" placeholder="Quest ID, e.g. DA01" spellcheck="false">
+          <button class="btn secondary" data-go>Go to objective</button><button class="btn" data-done>Complete</button></div></div>`;
       case 'slider': {
         const v = store.get('slider:' + it.key, it.value);
         return `<div class="card slider-card" ${k}>${meta(it)}<div class="slider-val">${v}${it.unit || ''}</div>
@@ -210,12 +257,34 @@
         $$('.chip', card).forEach((c) => c.addEventListener('click', () => run(it.cmds(Number(c.dataset.val)), `${it.name} ${it.fmt(Number(c.dataset.val))}`, card)));
       } else if (it.type === 'select') {
         const sel = $('select', card);
-        $('[data-act]', card).addEventListener('click', () => run(it.cmds(sel.value), `Teleport → ${sel.selectedOptions[0].text}`, card));
+        $('[data-act]', card).addEventListener('click', () => run(it.cmds(sel.value), `${it.name}: ${sel.selectedOptions[0].text}`, card));
+      } else if (it.type === 'pick') {
+        const sel = $('select', card), inp = $('input', card);
+        $('[data-act]', card).addEventListener('click', () => {
+          const v = Math.round(Number(inp.value));
+          if (!Number.isFinite(v) || v < it.min || v > it.max) return toast('Invalid value', `Enter ${it.min}–${it.max}`, true);
+          run(it.cmds(sel.value, v), `${it.name}: ${sel.selectedOptions[0].text} ${v.toLocaleString()}`, card);
+        });
+      } else if (it.type === 'quest' || it.type === 'questid') {
+        const field = $('select, input', card);
+        const quest = () => {
+          const id = field.value.trim();
+          if (!/^[A-Za-z0-9_]{2,40}$/.test(id)) { toast('Enter a quest ID', 'Letters, numbers and _ only, e.g. MQ101', true); return null; }
+          return { id, name: field.tagName === 'SELECT' ? field.selectedOptions[0].text : id };
+        };
+        $('[data-go]', card).addEventListener('click', () => {
+          const q = quest(); if (q) run([`movetoqt ${q.id}`], `Go to objective: ${q.name}`, card);
+        });
+        $('[data-done]', card).addEventListener('click', () => {
+          const q = quest(); if (!q) return;
+          if (!confirm(`Complete "${q.name}"?\n\nThe quest is marked done right away. Rewards that are handed out in dialogue may be skipped, and the next quest may not start by itself. Quick Save first if you're unsure.`)) return;
+          run([`completequest ${q.id}`], `Completed: ${q.name}`, card);
+        });
       } else if (it.type === 'slider') {
         const r = $('input', card), out = $('.slider-val', card);
         fillRange(r);
-        r.addEventListener('input', () => { fillRange(r); out.textContent = r.value + (it.unit || ''); out.style.transform = 'scale(1.12)'; });
-        r.addEventListener('change', () => { out.style.transform = ''; store.set('slider:' + it.key, Number(r.value)); });
+        r.addEventListener('input', () => { fillRange(r); out.textContent = r.value + (it.unit || ''); });
+        r.addEventListener('change', () => store.set('slider:' + it.key, Number(r.value)));
         $('[data-act]', card).addEventListener('click', () => run(it.cmds(Number(r.value)), `${it.name}: ${r.value}${it.unit || ''}`, card));
       }
     });
@@ -293,6 +362,10 @@
             <input class="field" id="act-scan" value="0x${Number(c.activateScan ?? 0x12).toString(16).toUpperCase()}" style="width:90px"></div>
           <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats while the trainer is open. Skyrim blocks normal hotkeys while you play, and the trainer never monitors your keyboard, so in game use Alt+Tab to open it.</p></div><div class="switch"></div></div>
         </div></section>
+        <section class="section"><div class="section-title">Keeping cheats on</div><div class="grid">
+          <div class="card wide toggle ${c.checkpoint !== false ? 'on' : ''}" id="cp"><div class="meta"><h4>Checkpoint save when returning to the game</h4>
+            <p>Dying reloads your last save, which drops stat cheats (Infinite Magicka, Speed, Crit...). When you go back to the game, the trainer re-applies them and saves to a "DovahCheats" slot, so the next death reloads a save that still has them. God Mode, No Clip and other toggles survive death by themselves; after you restart Skyrim, all your cheats are re-applied the next time you open the trainer.</p></div><div class="switch"></div></div>
+        </div></section>
         <section class="section"><div class="section-title">Updates</div><div class="grid">
           <div class="card wide" style="--i:4"><div class="meta"><h4>Version <span class="ver">${esc(state.version)}</span></h4>
             <p id="upd-text">${esc(updateText())}</p></div>
@@ -313,7 +386,7 @@
         $('[data-buy]', el).addEventListener('click', async (e) => {
           const cmds = [`player.additem ${it.id} ${it.qty || 1}`];
           if (state.payWithGold) cmds.unshift(`player.removeitem f ${it.price}`);
-          if (await run(cmds, `Bought ${it.name}`, null)) coinBurst(e.clientX, e.clientY);
+          await run(cmds, `Bought ${it.name}`, el);
         });
       });
       $('#cust-go').addEventListener('click', () => {
@@ -389,6 +462,10 @@
         state.config = await api.setConfig({ hotkeys: !state.config.hotkeys });
         $('#hk').classList.toggle('on', state.config.hotkeys);
       });
+      $('#cp').addEventListener('click', async () => {
+        state.config = await api.setConfig({ checkpoint: state.config.checkpoint === false });
+        $('#cp').classList.toggle('on', state.config.checkpoint !== false);
+      });
       $('#upd-check').addEventListener('click', async () => {
         const r = await api.checkUpdate();
         if (r?.dev) toast('Updates are disabled in dev mode', 'Install the released .exe to get auto-updates');
@@ -458,66 +535,6 @@
     if (po) po.innerHTML = s.pathOk ? '<span class="pill-ok">● valid</span>' : '<span class="pill-bad">● SkyrimSE.exe not found</span>';
   }
 
-  // ---------------- Effects ----------------
-  document.addEventListener('pointerdown', (e) => {
-    const b = e.target.closest('.btn, .chip');
-    if (!b) return;
-    const r = b.getBoundingClientRect(), size = Math.max(r.width, r.height);
-    const s = document.createElement('span');
-    s.className = 'ripple';
-    Object.assign(s.style, { width: size + 'px', height: size + 'px', left: e.clientX - r.left - size / 2 + 'px', top: e.clientY - r.top - size / 2 + 'px' });
-    b.append(s); setTimeout(() => s.remove(), 600);
-  });
-
-  document.addEventListener('pointermove', (e) => {
-    const c = e.target.closest('.card');
-    if (!c) return;
-    const r = c.getBoundingClientRect();
-    c.style.setProperty('--mx', e.clientX - r.left + 'px');
-    c.style.setProperty('--my', e.clientY - r.top + 'px');
-  });
-
-  function coinBurst(x, y) {
-    for (let i = 0; i < 14; i++) {
-      const c = document.createElement('div');
-      c.className = 'coin-burst';
-      c.style.left = x + 'px'; c.style.top = y + 'px';
-      document.body.append(c);
-      const a = Math.random() * Math.PI * 2, d = 40 + Math.random() * 70;
-      c.animate([
-        { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 },
-        { transform: `translate(calc(-50% + ${Math.cos(a) * d}px), calc(-50% + ${Math.sin(a) * d - 40}px)) scale(.4)`, opacity: 0 },
-      ], { duration: 700 + Math.random() * 300, easing: 'cubic-bezier(.22,1,.36,1)' }).onfinish = () => c.remove();
-    }
-  }
-
-  function embers() {
-    const cv = $('#embers'), ctx = cv.getContext('2d');
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    let w, h, ps = [];
-    const resize = () => { const r = cv.getBoundingClientRect(); w = cv.width = r.width * devicePixelRatio; h = cv.height = r.height * devicePixelRatio; };
-    const spawn = (init) => ({
-      x: Math.random() * w, y: init ? Math.random() * h : h + 10, r: (Math.random() * 1.6 + .4) * devicePixelRatio,
-      vy: -(Math.random() * .35 + .12) * devicePixelRatio, vx: (Math.random() - .5) * .2, life: Math.random() * Math.PI * 2,
-      hue: Math.random() < .75 ? 40 : 205,
-    });
-    resize(); addEventListener('resize', resize);
-    ps = Array.from({ length: 70 }, () => spawn(true));
-    (function frame() {
-      ctx.clearRect(0, 0, w, h);
-      for (const p of ps) {
-        p.y += p.vy; p.life += .02; p.x += p.vx + Math.sin(p.life) * .25;
-        if (p.y < -10) Object.assign(p, spawn(false));
-        const a = .35 + Math.sin(p.life * 2) * .25;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${p.hue}, 85%, 65%, ${a})`;
-        ctx.shadowBlur = 8 * devicePixelRatio; ctx.shadowColor = `hsla(${p.hue}, 90%, 60%, .8)`;
-        ctx.fill();
-      }
-      requestAnimationFrame(frame);
-    })();
-  }
-
   // ---------------- Wiring ----------------
   $$('[data-win]').forEach((b) => b.addEventListener('click', () => api.window(b.dataset.win)));
   $('#backdrop').addEventListener('click', () => api.window('hide'));
@@ -546,10 +563,16 @@
     if (!active.length) return toast('Nothing to turn off', 'No toggles are active');
     const ok = await run(active.flatMap((it) => it.off), `Disabled ${active.length} cheat${active.length > 1 ? 's' : ''}`, null);
     if (!ok) return;
-    state.toggles = {}; store.set('toggles', {});
-    $$('#page .card.toggle').forEach((c) => c.id !== 'hk' && c.classList.remove('on'));
+    state.toggles = {}; persistToggles(false);
+    $$('#page .card.toggle').forEach((c) => !c.id && c.classList.remove('on'));
     updateCounts();
   });
+
+  $('#reapply').addEventListener('click', async () => {
+    if (!activeToggles().length) return toast('No cheats to restore', 'Turn some cheats on first');
+    if (await reapply({ full: true })) toast('Cheats restored', 'Your active cheats were applied to the game again');
+  });
+  api.onReapply((opts) => reapply(opts));
 
   api.onHotkey((key) => {
     const it = hotkeys.get(key);
@@ -563,17 +586,15 @@
   (async function init() {
     state.config = await api.getConfig();
     state.version = await api.version();
-    delete state.toggles.autoskip; // lives in the main process; synced by refreshStatus
+    // Remembered cheats (kept in config.json by the main process).
+    try { for (const k of Object.keys(await api.getToggles())) if (items.has(k)) state.toggles[k] = true; } catch { /* none */ }
     try { const s = await api.status(); state.subtitles = s.subtitles; } catch { /* status unavailable */ }
     renderNav();
-    $('#log-list').innerHTML = '<li class="empty" style="border:0;background:none;animation:none">Nothing yet — flip a cheat to get started.</li>';
+    $('#log-list').innerHTML = '<li class="empty">Nothing yet. Flip a cheat to get started.</li>';
     go(state.tab);
     updateCounts();
-    embers();
     refreshStatus();
     setInterval(refreshStatus, 4000);
-    await sleep(1300);
-    $('#splash').classList.add('done');
     requestAnimationFrame(moveIndicator);
   })();
 })();

@@ -5,6 +5,37 @@
 const SKILLS = ['OneHanded', 'TwoHanded', 'Marksman', 'Block', 'Smithing', 'HeavyArmor', 'LightArmor', 'Pickpocket',
   'Lockpicking', 'Sneak', 'Alchemy', 'Speechcraft', 'Alteration', 'Conjuration', 'Destruction', 'Illusion', 'Restoration', 'Enchanting'];
 
+const SKILL_LABELS = { OneHanded: 'One-Handed', TwoHanded: 'Two-Handed', Marksman: 'Archery', HeavyArmor: 'Heavy Armor', LightArmor: 'Light Armor', Speechcraft: 'Speech' };
+const SKILL_NAMES = SKILLS.map((s) => [s, SKILL_LABELS[s] || s]);
+
+// Quest IDs from each quest's page on UESP (en.uesp.net/wiki/Skyrim:<Quest>).
+// completequest <id> finishes the quest; movetoqt <id> teleports you to its current objective.
+const QUEST_LINES = [
+  { name: 'Main Quest', desc: 'The Dragonborn story, from Helgen to Sovngarde.', quests: [
+    ['MQ101', 'Unbound'], ['MQ102', 'Before the Storm'], ['MQ103', 'Bleak Falls Barrow'], ['MQ104', 'Dragon Rising'],
+    ['MQ105', 'The Way of the Voice'], ['MQ105Ustengrav', 'The Horn of Jurgen Windcaller'], ['MQ106', 'A Blade in the Dark'],
+    ['MQ201', 'Diplomatic Immunity'], ['MQ202', 'A Cornered Rat'], ['MQ203', "Alduin's Wall"], ['MQ204', 'The Throat of the World'],
+    ['MQ205', 'Elder Knowledge'], ['MQ206', "Alduin's Bane"], ['MQ301', 'The Fallen'], ['MQ302', 'Season Unending'],
+    ['MQ303', "The World-Eater's Eyrie"], ['MQ304', 'Sovngarde'], ['MQ305', 'Dragonslayer'],
+  ] },
+  { name: 'Companions', desc: 'Jorrvaskr and the Circle.', quests: [
+    ['C00', 'Take Up Arms'], ['C01', 'Proving Honor'], ['C03', 'The Silver Hand'], ['C04', "Blood's Honor"], ['C05', 'Purity of Revenge'], ['C06', 'Glory of the Dead'],
+  ] },
+  { name: 'College of Winterhold', desc: 'The mages’ questline.', quests: [
+    ['MG01', 'First Lessons'], ['MG02', 'Under Saarthal'], ['MG03', 'Hitting the Books'], ['MG04', 'Good Intentions'],
+    ['MG05', 'Containment'], ['MG06', 'Revealing the Unseen'], ['MG07', 'The Staff of Magnus'], ['MG08', 'The Eye of Magnus'],
+  ] },
+  { name: 'Thieves Guild', desc: 'Riften’s Ratway and the Nightingales.', quests: [
+    ['TG00', 'A Chance Arrangement'], ['TG01', 'Taking Care of Business'], ['TG02', 'Loud and Clear'], ['TG03', 'Dampened Spirits'],
+    ['TG04', "Scoundrel's Folly"], ['TG05', 'Speaking With Silence'], ['TG06', 'Hard Answers'], ['TG07', 'The Pursuit'],
+    ['TG08A', 'Trinity Restored'], ['TG08B', 'Blindsighted'], ['TG09', 'Darkness Returns'],
+  ] },
+  { name: 'Dark Brotherhood', desc: 'The Family’s contracts.', quests: [
+    ['DB02', 'With Friends Like These...'], ['DB02a', 'Sanctuary'], ['DB04a', 'The Silence Has Been Broken'], ['DB05', 'Bound Until Death'],
+    ['DB06', 'Breaching Security'], ['DB11', 'Hail Sithis!'],
+  ] },
+];
+
 // Hold crime factions (for clearing bounties).
 const HOLDS = [
   ['000267EA', 'Whiterun Hold'], ['0002816B', 'The Rift (Riften)'], ['00029DB0', 'Haafingar (Solitude)'],
@@ -56,31 +87,35 @@ window.TABS = [
       {
         title: 'Survival',
         items: [
-          { type: 'toggle', id: 'god', name: 'God Mode', desc: 'Invulnerable, unlimited magicka/stamina, no carry limit.', on: ['tgm'], off: ['tgm'], hotkey: 'F1' },
-          { type: 'toggle', id: 'mana', name: 'Infinite Magicka', desc: 'Magicka refills almost instantly.', on: ['player.modav magickarate 5000'], off: ['player.modav magickarate -5000'], hotkey: 'F2' },
-          { type: 'toggle', id: 'stam', name: 'Infinite Stamina', desc: 'Sprint and power-attack forever.', on: ['player.modav staminarate 5000'], off: ['player.modav staminarate -5000'], hotkey: 'F3' },
-          { type: 'toggle', id: 'regen', name: 'Fast Health Regen', desc: 'Health regenerates rapidly, even in combat.', on: ['player.modav healrate 5000', 'player.modav combathealthregenmult 100'], off: ['player.modav healrate -5000', 'player.modav combathealthregenmult -100'] },
-          { type: 'toggle', id: 'weight', name: 'Unlimited Carry Weight', desc: 'Never be over-encumbered.', on: ['player.modav carryweight 100000'], off: ['player.modav carryweight -100000'] },
+          // persist: 'session' = console toggle, survives death/loads, reset when Skyrim restarts.
+          //          'save'    = stat change stored in the save; re-applied after death. Uses setav
+          //                      (absolute values), so re-applying never stacks.
+          { type: 'toggle', id: 'god', persist: 'session', name: 'God Mode', desc: 'Invulnerable, unlimited magicka/stamina, no carry limit.', on: ['tgm'], off: ['tgm'], hotkey: 'F1' },
+          { type: 'toggle', id: 'mana', persist: 'save', name: 'Infinite Magicka', desc: 'Magicka refills almost instantly.', on: ['player.setav magickarate 5000'], off: ['player.setav magickarate 3'], hotkey: 'F2' },
+          { type: 'toggle', id: 'stam', persist: 'save', name: 'Infinite Stamina', desc: 'Sprint and power-attack forever.', on: ['player.setav staminarate 5000'], off: ['player.setav staminarate 5'], hotkey: 'F3' },
+          { type: 'toggle', id: 'regen', persist: 'save', name: 'Fast Health Regen', desc: 'Health regenerates rapidly, even in combat.', on: ['player.setav healrate 500', 'player.setav combathealthregenmult 100'], off: ['player.setav healrate 0.7', 'player.setav combathealthregenmult 0.7'] },
+          { type: 'toggle', id: 'weight', persist: 'save', name: 'Unlimited Carry Weight', desc: 'Never be over-encumbered. Off restores the default 300 base (items and perks still add on top).', on: ['player.setav carryweight 100000'], off: ['player.setav carryweight 300'] },
           { type: 'button', name: 'Full Restore', desc: 'Refill health, magicka and stamina now.', label: 'Restore', cmds: ['player.restoreav health 100000', 'player.restoreav magicka 100000', 'player.restoreav stamina 100000'] },
+          { type: 'button', name: 'Repair Stats', desc: 'Puts magicka, stamina and health regeneration back to normal if an older trainer version left them stuck.', label: 'Repair', cmds: ['player.forceav magickarate 3', 'player.forceav staminarate 5', 'player.forceav healrate 0.7', 'player.forceav combathealthregenmult 0.7'] },
         ],
       },
       {
         title: 'Combat',
         items: [
-          { type: 'toggle', id: 'crit', name: 'Always Critical', desc: '100% critical hit chance.', on: ['player.setav critchance 100'], off: ['player.setav critchance 0'], hotkey: 'F4' },
-          { type: 'toggle', id: 'ohk', name: 'One-Hit Kills', desc: '100x weapon attack damage.', on: ['player.setav attackdamagemult 100'], off: ['player.setav attackdamagemult 1'], hotkey: 'F6' },
-          { type: 'toggle', id: 'stealth', name: 'Undetectable', desc: 'Turns off AI detection — sneak anywhere.', on: ['tdetect'], off: ['tdetect'] },
+          { type: 'toggle', id: 'crit', persist: 'save', name: 'Always Critical', desc: '100% critical hit chance.', on: ['player.setav critchance 100'], off: ['player.setav critchance 0'], hotkey: 'F4' },
+          { type: 'toggle', id: 'ohk', persist: 'save', name: 'One-Hit Kills', desc: '100x weapon attack damage.', on: ['player.setav attackdamagemult 100'], off: ['player.setav attackdamagemult 1'], hotkey: 'F6' },
+          { type: 'toggle', id: 'stealth', persist: 'session', name: 'Undetectable', desc: 'Turns off AI detection — sneak anywhere.', on: ['tdetect'], off: ['tdetect'] },
           { type: 'slider', name: 'Damage Multiplier', desc: 'Fine-tune attack damage (1 = normal).', min: 1, max: 50, step: 1, value: 1, unit: 'x', cmds: (v) => [`player.setav attackdamagemult ${v}`] },
         ],
       },
       {
         title: 'Movement',
         items: [
-          { type: 'toggle', id: 'speed', name: 'Super Speed', desc: 'Run at 3x speed.', on: speedCmds(300), off: speedCmds(100), hotkey: 'F7' },
+          { type: 'toggle', id: 'speed', persist: 'save', name: 'Super Speed', desc: 'Run at 3x speed.', on: speedCmds(300), off: speedCmds(100), hotkey: 'F7' },
           { type: 'slider', name: 'Movement Speed', desc: 'Custom speed (100 = normal).', min: 50, max: 1000, step: 10, value: 100, unit: '%', cmds: speedCmds },
           { type: 'slider', name: 'Jump Height', desc: 'Jump height (76 = normal).', min: 76, max: 1500, step: 2, value: 76, cmds: (v) => [`setgs fJumpHeightMin ${v}`] },
-          { type: 'toggle', id: 'nofall', name: 'No Fall Damage', desc: 'Survive any drop.', on: ['setgs fJumpFallHeightMin 100000'], off: ['setgs fJumpFallHeightMin 600'] },
-          { type: 'toggle', id: 'noclip', name: 'No Clip', desc: 'Walk through walls and fly (toggle collision).', on: ['tcl'], off: ['tcl'], hotkey: 'F8' },
+          { type: 'toggle', id: 'nofall', persist: 'session', name: 'No Fall Damage', desc: 'Survive any drop.', on: ['setgs fJumpFallHeightMin 100000'], off: ['setgs fJumpFallHeightMin 600'] },
+          { type: 'toggle', id: 'noclip', persist: 'session', name: 'No Clip', desc: 'Walk through walls and fly (toggle collision).', on: ['tcl'], off: ['tcl'], hotkey: 'F8' },
         ],
       },
     ],
@@ -95,6 +130,8 @@ window.TABS = [
           { type: 'number', name: 'Add Perk Points', desc: 'Grant unspent perk points.', value: 10, min: 1, max: 255, label: 'Add', cmds: (v) => [`game.addperkpoints ${v}`] },
           { type: 'number', name: 'Add Dragon Souls', desc: 'Souls for unlocking shouts.', value: 10, min: 1, max: 999, label: 'Add', cmds: (v) => [`player.modav dragonsouls ${v}`] },
           { type: 'button', name: 'Max All Skills', desc: 'Every skill to 100 (no level-ups).', label: 'Max out', cmds: SKILLS.map((s) => `player.setav ${s} 100`) },
+          { type: 'pick', name: 'Set One Skill', desc: 'Pick a skill and the level you want (15–100).', options: SKILL_NAMES, value: 100, min: 15, max: 100, label: 'Set', cmds: (s, v) => [`player.setav ${s} ${v}`] },
+          { type: 'pick', name: 'Train One Skill', desc: 'Adds real skill XP, so the game levels you up and counts it for perks and achievements.', options: SKILL_NAMES, value: 5000, min: 100, max: 50000, label: 'Train', cmds: (s, v) => [`player.advskill ${s} ${v}`] },
           { type: 'button', name: 'Learn Every Spell & Shout', desc: 'Adds all spells, powers and shouts (incl. some test/unused ones).', label: 'Learn all', danger: true, cmds: ['psb'] },
         ],
       },
@@ -106,6 +143,30 @@ window.TABS = [
           { type: 'slider', name: 'Max Stamina', desc: 'Base stamina value.', min: 100, max: 5000, step: 50, value: 100, cmds: (v) => [`player.setav stamina ${v}`] },
         ],
       },
+      {
+        title: 'Appearance',
+        items: [
+          { type: 'button', name: 'Change Looks & Name', desc: 'Opens the character creator. Changing your race can reset skills, so only change face, hair and name.', label: 'Open', danger: true, cmds: ['showracemenu'] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'quests', label: 'Quests', icon: 'scroll', blurb: 'Finish quests or jump to their objectives',
+    sections: [
+      {
+        title: 'Story Questlines',
+        items: QUEST_LINES.map((line) => ({
+          type: 'quest', name: line.name, desc: line.desc, options: line.quests,
+        })),
+      },
+      {
+        title: 'Any Quest',
+        items: [
+          { type: 'questid', name: 'Quest by ID', desc: 'Type any quest ID (shown on its UESP page, e.g. MQ101, C00, DA01). Works for side quests and Daedric quests too.' },
+          { type: 'button', name: 'Complete ALL Quests', desc: 'Runs every quest to its end at once. This WILL break your game: NPCs vanish, questlines lock up. Only for a throwaway save.', label: 'Complete all', danger: true, cmds: ['caqs'] },
+        ],
+      },
     ],
   },
   {
@@ -114,6 +175,7 @@ window.TABS = [
       {
         title: 'Time',
         items: [
+          { type: 'chips', name: 'Time Presets', desc: 'Jump straight to a time of day.', options: [6, 12, 18, 0], fmt: (v) => ({ 6: 'Dawn', 12: 'Noon', 18: 'Dusk', 0: 'Midnight' })[v], cmds: (v) => [`set gamehour to ${v}`] },
           { type: 'slider', name: 'Time of Day', desc: 'Jump to an hour (0–23).', min: 0, max: 23, step: 1, value: 12, unit: ':00', cmds: (v) => [`set gamehour to ${v}`] },
           { type: 'slider', name: 'Timescale', desc: 'Game time speed (20 = normal).', min: 1, max: 200, step: 1, value: 20, cmds: (v) => [`set timescale to ${v}`] },
         ],
@@ -121,9 +183,9 @@ window.TABS = [
       {
         title: 'World Rules',
         items: [
-          { type: 'toggle', id: 'freezeai', name: 'Freeze All NPCs', desc: 'Toggle AI processing.', on: ['tai'], off: ['tai'], hotkey: 'F10' },
-          { type: 'toggle', id: 'nocombat', name: 'Peaceful NPCs', desc: 'Toggle combat AI — nobody fights.', on: ['tcai'], off: ['tcai'] },
-          { type: 'toggle', id: 'flycam', name: 'Free Camera', desc: 'Detach the camera to fly around.', on: ['tfc'], off: ['tfc'] },
+          { type: 'toggle', id: 'freezeai', persist: 'session', name: 'Freeze All NPCs', desc: 'Toggle AI processing.', on: ['tai'], off: ['tai'], hotkey: 'F10' },
+          { type: 'toggle', id: 'nocombat', persist: 'session', name: 'Peaceful NPCs', desc: 'Toggle combat AI — nobody fights.', on: ['tcai'], off: ['tcai'] },
+          { type: 'toggle', id: 'flycam', persist: 'session', name: 'Free Camera', desc: 'Detach the camera to fly around.', on: ['tfc'], off: ['tfc'] },
           { type: 'button', name: 'Kill Nearby NPCs', desc: 'Kills every loaded, non-essential actor around you.', label: 'Kill all', danger: true, cmds: ['killall'] },
         ],
       },
@@ -140,7 +202,7 @@ window.TABS = [
         items: [
           { type: 'button', name: 'Quick Save', desc: 'Saves to a "DovahQuick" slot from the console. Useful before trying risky cheats.', label: 'Save', cmds: ['save DovahQuick'] },
           { type: 'button', name: 'Load Quick Save', desc: 'Loads the "DovahQuick" save. Unsaved progress is lost.', label: 'Load', danger: true, cmds: ['load DovahQuick'] },
-          { type: 'toggle', id: 'hud', name: 'Hide HUD & Menus', desc: 'Clean screenshots. Press again (or use the trainer) to bring the HUD back.', on: ['tm'], off: ['tm'] },
+          { type: 'toggle', id: 'hud', persist: 'session', name: 'Hide HUD & Menus', desc: 'Clean screenshots. Press again (or use the trainer) to bring the HUD back.', on: ['tm'], off: ['tm'] },
           { type: 'slider', name: 'Slow Motion', desc: 'Global game speed (1 = normal). Lower for bullet time.', min: 0.1, max: 2, step: 0.1, value: 1, unit: 'x', cmds: (v) => [`sgtm ${v}`] },
           { type: 'button', name: 'Free Up Memory', desc: 'Purges cached cells. Can fix stutter after long sessions.', label: 'Purge', cmds: ['pcb'] },
         ],

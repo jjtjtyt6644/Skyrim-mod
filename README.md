@@ -32,6 +32,20 @@ npm start
 
 The trainer never reads or monitors the keyboard. There's no PowerShell, no keyboard hook and no key-state polling. Earlier versions used those, and antivirus software such as Bitdefender flagged them as a keylogger. Hotkeys are standard Windows hotkeys (`RegisterHotKey`), the same kind Discord or OBS use.
 
+## Keeping cheats on (death, restarts)
+
+- The trainer remembers which cheats you turned on, even after you close and reopen it (stored in `%APPDATA%\Dovah Trainer\config.json`).
+- **Dying** reloads your last save, which drops stat cheats such as Infinite Magicka, Speed, Crit and One-Hit Kills. When you return to the game from the trainer, it re-applies them. It also saves to a `DovahCheats` slot, so the next death reloads a save that still has them. You can switch the checkpoint save off in Settings. God Mode, No Clip and other console toggles survive death by themselves.
+- **Restarting Skyrim** resets everything. The next time you open the trainer, it re-applies all your cheats once.
+- **Restore my cheats** in the sidebar (or in the tray menu) re-applies everything on demand.
+
+## Quests
+
+- Pick a quest from the Main Quest, Companions, College, Thieves Guild or Dark Brotherhood list, then use **Complete** (`completequest <id>`) or **Go to objective** (`movetoqt <id>`). The IDs come from UESP.
+- **Quest by ID** works for any quest, including side and Daedric quests.
+- Completing a quest by console can skip rewards that are handed out in dialogue, and the next quest might not start. Quick Save first.
+- **Complete ALL Quests** (`caqs`) breaks a save. Only use it on a throwaway save.
+
 ## Crime, inventory and game tools
 
 - **Remove All Bounties** clears every hold's bounty with `player.paycrimegold 0 0 <faction>`, so there's no jail and you keep stolen items. You can also clear one hold, or **Call Off the Guards** to clear bounties and stop anyone already attacking you (`player.stopcombatalarm`).

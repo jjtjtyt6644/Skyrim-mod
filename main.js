@@ -1,5 +1,5 @@
 // Dovah Trainer — Electron main process.
-// Runs as an in-game overlay (transparent, always-on-top, toggled with Insert).
+// Runs as an in-game overlay (transparent, always-on-top, opened via Alt+Tab).
 // Cheats are written to <Skyrim>\dovahtrainer.txt and native.js types
 // "bat dovahtrainer" into the game console.
 const { app, BrowserWindow, ipcMain, globalShortcut, shell, dialog, screen, Tray, Menu, nativeImage } = require('electron');
@@ -11,7 +11,16 @@ const native = require('./native');
 const BAT_NAME = 'dovahtrainer';
 const TOGGLE_KEY = 'Insert';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json');
-const DEFAULTS = { gamePath: '', consoleScan: 0x29, activateScan: 0x12, keyDelay: 45, hotkeys: true };
+const DEFAULTS = {
+  gamePath: '', consoleScan: 0x29, activateScan: 0x12, keyDelay: 45, hotkeys: true,
+  // Active cheat toggles, remembered across trainer restarts: { key: 'save' | 'session' }.
+  //   save    = actor-value cheats stored in the save; lost when a save is (re)loaded, e.g. after death
+  //   session = console toggles (tgm, tcl...) that survive loads but reset when Skyrim restarts
+  toggles: {},
+  appliedPid: 0,     // Skyrim process the session toggles were last applied to
+  checkpoint: true,  // save "DovahCheats" after re-applying, so dying reloads a save that has them
+};
+const REAPPLY_GAP_MS = 60 * 1000;
 const ALLOWED_LINKS = new Set([
   'https://github.com/gibbed/SteamAchievementManager',
   'https://en.uesp.net/wiki/Skyrim:Console',
@@ -135,9 +144,39 @@ async function runCommands(commands) {
   }
 }
 
+// ---------- keeping cheats on ----------
+// Dying reloads your last save, which drops actor-value cheats ('save' kind); restarting
+// Skyrim also drops console toggles ('session' kind). The renderer owns the cheat
+// definitions; we decide *when* to re-apply and ask it to do so.
+let lastReapply = 0;
+let checkpointDirty = false;
+
+function maybeReapply(when) {
+  const pid = native.gamePid();
+  const active = Object.values(config.toggles || {});
+  if (!pid || !win) return;
+  const newSession = pid !== config.appliedPid;
+  if (!active.length) {
+    if (newSession) { config.appliedPid = pid; saveConfig(); } // nothing to apply
+    return;
+  }
+  const hasSave = active.includes('save');
+  if (newSession) {
+    // Skyrim was (re)started: everything needs applying once.
+    lastReapply = Date.now();
+    win.webContents.send('reapply', { full: true, checkpoint: false });
+  } else if (when === 'return' && hasSave && (checkpointDirty || Date.now() - lastReapply > REAPPLY_GAP_MS)) {
+    // Back to the game: refresh save-stored cheats (covers a death reload) and save a
+    // checkpoint so the next death reloads a save that still has them.
+    lastReapply = Date.now();
+    checkpointDirty = false;
+    win.webContents.send('reapply', { full: false, checkpoint: !!config.checkpoint });
+  }
+}
+
 // ---------- overlay ----------
-// The overlay closes itself when it loses focus (click into the game, alt-tab),
-// except while we deliberately hand focus to the game to type a command.
+// The overlay closes when you go back to Skyrim, but not when some other app (Discord,
+// Medal, Overwolf, a notification) briefly takes focus — that used to make it vanish.
 let holdCount = 0;
 const dbg = (...a) => { if (process.env.DOVAH_DEBUG) console.log(new Date().toISOString().slice(17, 23), ...a); };
 async function holdOpen(fn) {
@@ -163,6 +202,7 @@ async function showOverlay() {
     await native.focusWindow(hwnd());
   });
   dbg('showOverlay done', { visible: win.isVisible(), minimized: win.isMinimized(), focused: win.isFocused() });
+  maybeReapply('open');
 }
 
 function hideOverlay(returnToGame = true) {
@@ -175,7 +215,8 @@ function hideOverlay(returnToGame = true) {
     win.hide();
     // Back to the game; an error just means it isn't running.
     if (returnToGame) await native.focusGame();
-  }, 230);
+    maybeReapply('return');
+  }, 180);
 }
 
 const toggleOverlay = () => (overlayOpen ? hideOverlay() : showOverlay());
@@ -252,6 +293,7 @@ function createTray() {
   tray.setToolTip('Dovah Trainer: Alt+Tab to it in game');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show / hide trainer', click: toggleOverlay },
+    { label: 'Re-apply my cheats now', click: () => win?.webContents.send('reapply', { full: true, checkpoint: false }) },
     { type: 'separator' },
     { label: 'Quit Dovah Trainer', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -303,7 +345,16 @@ function createWindow() {
   // Focus already went somewhere else (game or another app): just get out of the way.
   win.on('focus', () => dbg('focus'));
   win.on('blur', () => {
-    dbg('blur', { overlayOpen, holdCount }); if (overlayOpen && holdCount === 0) hideOverlay(false);
+    dbg('blur', { overlayOpen, holdCount });
+    if (!overlayOpen || holdCount > 0) return;
+    // Only close when the player actually went back to Skyrim. Pop-ups from Discord,
+    // Medal, Overwolf etc. used to steal focus and make the trainer disappear.
+    setTimeout(() => {
+      if (!overlayOpen || holdCount > 0) return;
+      let fg = '';
+      try { fg = native.foregroundProcess(); } catch { /* ignore */ }
+      if (fg === 'SkyrimSE') hideOverlay(false);
+    }, 200);
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -365,9 +416,30 @@ app.whenReady().then(async () => {
   ipcMain.handle('display:fix', () => makeBorderless());
   ipcMain.handle('subtitles:fix', () => enableSubtitles());
   ipcMain.handle('autoskip:set', (_e, on) => { setAutoSkip(!!on, 'user'); return skip.auto; });
+  ipcMain.handle('toggles:get', () => config.toggles || {});
+  ipcMain.handle('toggles:set', (_e, map, changedSave) => {
+    const clean = {};
+    for (const [k, v] of Object.entries(map || {})) if (v === 'save' || v === 'session') clean[k] = v;
+    config.toggles = clean;
+    if (changedSave) checkpointDirty = true;
+    saveConfig();
+    return config.toggles;
+  });
+  // Before toggling: is this a Skyrim session we haven't applied the remembered cheats to?
+  ipcMain.handle('session:check', () => {
+    const pid = native.gamePid();
+    const fresh = !!pid && pid !== config.appliedPid;
+    if (fresh && !Object.keys(config.toggles || {}).length) { config.appliedPid = pid; saveConfig(); return { fresh: false }; }
+    return { fresh };
+  });
+  // The renderer re-applied everything to the running game.
+  ipcMain.handle('reapply:done', (_e, full) => {
+    if (full) { config.appliedPid = native.gamePid(); saveConfig(); }
+    lastReapply = Date.now();
+  });
   ipcMain.handle('config:get', () => config);
   ipcMain.handle('config:set', (_e, patch) => {
-    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys'];
+    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys', 'checkpoint'];
     for (const k of allowed) if (k in patch) config[k] = patch[k];
     saveConfig();
     refreshHotkeys();
