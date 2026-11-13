@@ -1,16 +1,17 @@
 // Dovah Trainer — Electron main process.
 // Runs as an in-game overlay (transparent, always-on-top, toggled with Insert).
-// Cheats are written to <Skyrim>\dovahtrainer.txt and the PowerShell bridge
-// types "bat dovahtrainer" into the game console.
+// Cheats are written to <Skyrim>\dovahtrainer.txt and native.js types
+// "bat dovahtrainer" into the game console.
 const { app, BrowserWindow, ipcMain, globalShortcut, shell, dialog, screen, Tray, Menu, nativeImage } = require('electron');
-const { spawn, execFile } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const native = require('./native');
 
 const BAT_NAME = 'dovahtrainer';
 const TOGGLE_KEY = 'Insert';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json');
-const DEFAULTS = { gamePath: '', consoleScan: 0x29, keyDelay: 45, hotkeys: true };
+const DEFAULTS = { gamePath: '', consoleScan: 0x29, activateScan: 0x12, keyDelay: 45, hotkeys: true };
 const ALLOWED_LINKS = new Set([
   'https://github.com/gibbed/SteamAchievementManager',
   'https://en.uesp.net/wiki/Skyrim:Console',
@@ -80,71 +81,38 @@ function prefsPath() {
 
 function readDisplay() {
   const p = prefsPath();
-  if (!p) return { found: false, mode: 'unknown' };
+  if (!p) return { found: false, mode: 'unknown', subtitles: true };
   const t = fs.readFileSync(p, 'utf8');
   const full = /^\s*bFull Screen\s*=\s*1/im.test(t);
   const borderless = /^\s*bBorderless\s*=\s*1/im.test(t);
-  return { found: true, mode: full ? 'fullscreen' : borderless ? 'borderless' : 'windowed' };
+  const subtitles = !/^\s*bDialogueSubtitles\s*=\s*0/im.test(t);
+  return { found: true, mode: full ? 'fullscreen' : borderless ? 'borderless' : 'windowed', subtitles };
 }
 
-async function makeBorderless() {
+// Edit SkyrimPrefs.ini (game must be closed; it rewrites the file on exit). Backs up once.
+async function setPrefs(section, pairs) {
   const p = prefsPath();
   if (!p) return { ok: false, error: 'SkyrimPrefs.ini not found. Start Skyrim once first.' };
-  if ((await bridgeCall('STATUS')) === 'STATUS:1') return { ok: false, error: 'Close Skyrim first. The game overwrites this file when it exits.' };
+  if (native.gameRunning()) return { ok: false, error: 'Close Skyrim first. The game overwrites this file when it exits.' };
   let t = fs.readFileSync(p, 'utf8');
   const backup = p + '.dovah-backup';
   if (!fs.existsSync(backup)) fs.writeFileSync(backup, t);
-  const setKey = (key, val) => {
+  const header = new RegExp(`^\\[${section}\\]\\s*$`, 'im');
+  for (const [key, val] of pairs) {
     const re = new RegExp(`^(\\s*${key}\\s*=\\s*)\\S*`, 'im');
     if (re.test(t)) t = t.replace(re, (_m, pre) => pre + val);
-    else if (/^\[Display\]/im.test(t)) t = t.replace(/^\[Display\]\s*$/im, (m) => `${m}\r\n${key}=${val}`);
-    else t += `\r\n[Display]\r\n${key}=${val}\r\n`;
-  };
-  setKey('bFull Screen', '0');
-  setKey('bBorderless', '1');
+    else if (header.test(t)) t = t.replace(header, (m) => `${m}\r\n${key}=${val}`);
+    else t += `\r\n[${section}]\r\n${key}=${val}\r\n`;
+  }
   fs.writeFileSync(p, t);
   return { ok: true };
 }
 
-// ---------- PowerShell bridge ----------
-const bridge = { proc: null, buf: '', waiters: [], ready: null };
+const makeBorderless = () => setPrefs('Display', [['bFull Screen', '0'], ['bBorderless', '1']]);
+const enableSubtitles = () => setPrefs('Interface', [['bDialogueSubtitles', '1']]);
 
-function startBridge() {
-  const script = path.join(__dirname, 'bridge', 'SkyrimBridge.ps1').replace('app.asar', 'app.asar.unpacked');
-  bridge.proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true });
-  bridge.ready = new Promise((resolve) => { bridge.waiters.push(resolve); });
-  bridge.proc.stdout.setEncoding('utf8');
-  bridge.proc.stdout.on('data', (chunk) => {
-    bridge.buf += chunk;
-    let i;
-    while ((i = bridge.buf.indexOf('\n')) >= 0) {
-      const line = bridge.buf.slice(0, i).trim();
-      bridge.buf = bridge.buf.slice(i + 1);
-      if (line) { const w = bridge.waiters.shift(); if (w) w(line); }
-    }
-  });
-  bridge.proc.stderr.on('data', (d) => console.error('[bridge]', d.toString()));
-  bridge.proc.on('exit', () => {
-    bridge.waiters.splice(0).forEach((w) => w('ERR:Bridge stopped'));
-    bridge.proc = null;
-  });
-}
-
-let queue = Promise.resolve();
-function bridgeCall(line) {
-  const job = queue.then(async () => {
-    if (!bridge.proc) startBridge();
-    await bridge.ready;
-    return new Promise((resolve) => {
-      bridge.waiters.push(resolve);
-      bridge.proc.stdin.write(line + '\n');
-    });
-  });
-  queue = job.catch(() => {});
-  return job;
-}
-
-const hwnd = () => (win ? win.getNativeWindowHandle().readBigUInt64LE(0).toString() : '0');
+// ---------- game input ----------
+const hwnd = () => (win ? Number(win.getNativeWindowHandle().readBigUInt64LE(0)) : 0);
 
 async function runCommands(commands) {
   if (!Array.isArray(commands) || commands.length === 0) return { ok: false, error: 'No commands' };
@@ -156,10 +124,15 @@ async function runCommands(commands) {
     return { ok: false, error: `Could not write batch file: ${e.message}` };
   }
   // While the overlay is open, hand focus back to it afterwards so the mouse stays usable.
-  const ret = overlayOpen ? hwnd() : '0';
-  dbg('run start', clean, { ret, holdCount });
-  const res = await holdOpen(() => bridgeCall(`RUN|${BAT_NAME}|${Number(config.consoleScan) | 0}|${Number(config.keyDelay) | 0}|${ret}`));
-  return res === 'OK' ? { ok: true } : { ok: false, error: res.replace(/^ERR:/, '') };
+  const returnTo = overlayOpen ? hwnd() : 0;
+  dbg('run start', clean, { returnTo, holdCount });
+  try {
+    return await holdOpen(() => native.runBat(BAT_NAME, {
+      consoleScan: Number(config.consoleScan) | 0, delay: Number(config.keyDelay) | 0, returnTo,
+    }));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 // ---------- overlay ----------
@@ -187,7 +160,7 @@ async function showOverlay() {
     win.focus();
     win.webContents.send('overlay', true);
     // Skyrim holds the foreground; take it back so the cursor is freed.
-    await bridgeCall(`FOCUS|${hwnd()}`);
+    await native.focusWindow(hwnd());
   });
 }
 
@@ -200,56 +173,77 @@ function hideOverlay(returnToGame = true) {
     if (overlayOpen) return; // reopened during the animation
     win.hide();
     // Back to the game; an error just means it isn't running.
-    if (returnToGame) await bridgeCall('FOCUSGAME');
+    if (returnToGame) await native.focusGame();
   }, 230);
 }
 
 const toggleOverlay = () => (overlayOpen ? hideOverlay() : showOverlay());
 
-// ---------- hotkeys (low-level keyboard hook; works while Skyrim has focus) ----------
-// Plain F-keys, no modifiers: Ctrl is Skyrim's sneak key. F5/F9 are quicksave/quickload.
-const VK_INSERT = 0x2d;
-const HOTKEYS = { 0x70: 'F1', 0x71: 'F2', 0x72: 'F3', 0x73: 'F4', 0x75: 'F6', 0x76: 'F7', 0x77: 'F8', 0x79: 'F10' };
-const hook = { proc: null, buf: '' };
+// ---------- dialogue skipping ----------
+// Vanilla Skyrim skips the current NPC line when you press Activate (subtitles on).
+// Auto-Skip presses Activate about once a second, only while Skyrim is the active
+// window, and stops itself after 45 seconds. (The trainer never reads the keyboard,
+// so it can't notice you walking away; the short timeout keeps it safe.)
+const AUTO_SKIP_MS = 45 * 1000;
+const skip = { auto: false, autoUntil: 0, timer: null, busy: false };
+
+function setAutoSkip(on, reason) {
+  skip.auto = on;
+  skip.autoUntil = Date.now() + AUTO_SKIP_MS;
+  win?.webContents.send('autoskip', { on, reason });
+  clearInterval(skip.timer);
+  skip.timer = on ? setInterval(skipTick, 950) : null;
+  if (on) skipTick();
+  if (!overlayOpen && reason === 'hotkey') {
+    tray?.displayBalloon({ iconType: 'info', title: on ? 'Auto-Skip ON' : 'Auto-Skip OFF', content: on ? 'Skipping dialogue for 45 seconds. Press F11 to stop.' : 'Dialogue skipping stopped.' });
+  }
+}
+
+async function skipTick() {
+  if (Date.now() > skip.autoUntil) return setAutoSkip(false, 'timeout');
+  if (skip.busy) return; // a cheat command is being typed; don't interleave keys
+  skip.busy = true;
+  try { await native.tapIfGame(Number(config.activateScan) | 0); } catch { /* ignore */ } finally { skip.busy = false; }
+}
+
+// ---------- hotkeys ----------
+// Standard Windows hotkeys (RegisterHotKey via globalShortcut): no keyboard hooks or
+// key-state polling, which antivirus treats as keylogger behaviour. They are only
+// registered while Skyrim or the trainer is the active window, so F-keys keep
+// working normally in other apps. Each key is also registered with Shift held,
+// since players often hold Shift (run) when pressing them.
+// Plain F-keys, no Ctrl: Ctrl is Skyrim's sneak key. F5/F9 are quicksave/quickload.
+const CHEAT_KEYS = ['F1', 'F2', 'F3', 'F4', 'F6', 'F7', 'F8', 'F10'];
 const OWN_PROCESS = path.parse(process.execPath).name; // "Dovah Trainer" (or "electron" in dev)
+let hotkeysActive = false;
 
-function onHookKey(vk, fgProcess) {
-  if (vk === VK_INSERT) return toggleOverlay();
-  const key = HOTKEYS[vk];
-  if (!key || !config.hotkeys) return;
-  // Only while playing (or in the trainer), so F-keys keep working normally elsewhere.
-  if (fgProcess !== 'SkyrimSE' && fgProcess !== OWN_PROCESS) return;
-  win?.webContents.send('hotkey', key);
+function bindKey(key, fn) {
+  for (const accel of [key, `Shift+${key}`]) {
+    try { globalShortcut.register(accel, fn); } catch { /* taken by another app */ }
+  }
 }
 
-function startHook() {
-  const script = path.join(__dirname, 'bridge', 'SkyrimHotkeys.ps1').replace('app.asar', 'app.asar.unpacked');
-  const keys = [VK_INSERT, ...Object.keys(HOTKEYS)].join(',');
-  hook.proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Keys', keys], { windowsHide: true });
-  hook.proc.stdout.setEncoding('utf8');
-  hook.proc.stdout.on('data', (chunk) => {
-    hook.buf += chunk;
-    let i;
-    while ((i = hook.buf.indexOf('\n')) >= 0) {
-      const [kind, vk, fg] = hook.buf.slice(0, i).trim().split('|');
-      hook.buf = hook.buf.slice(i + 1);
-      if (kind === 'KEY') onHookKey(Number(vk), fg);
-      else if (kind === 'ERR') console.error('[hook]', vk);
-    }
-  });
-  hook.proc.stderr.on('data', (d) => console.error('[hook]', d.toString()));
-  hook.proc.on('exit', () => {
-    hook.proc = null;
-    if (!quitting) setTimeout(startHook, 1000); // keep the hotkeys alive
-  });
-}
-
-// Fallback for when the game isn't focused (e.g. on the desktop). The hook
-// already handles Insert, so this only fires if the hook process is down.
-function registerHotkeys() {
+function setHotkeysActive(on) {
+  if (on === hotkeysActive) return;
+  hotkeysActive = on;
   globalShortcut.unregisterAll();
-  if (!hook.proc) globalShortcut.register(TOGGLE_KEY, toggleOverlay);
+  if (!on) return;
+  bindKey(TOGGLE_KEY, toggleOverlay);
+  if (!config.hotkeys) return;
+  for (const key of CHEAT_KEYS) bindKey(key, () => win?.webContents.send('hotkey', key));
+  bindKey('F11', () => setAutoSkip(!skip.auto, 'hotkey'));
 }
+
+// Check which app is in front twice a second (window focus only, never keys).
+function startHotkeys() {
+  setInterval(() => {
+    let fg = '';
+    try { fg = native.foregroundProcess(); } catch { /* ignore */ }
+    setHotkeysActive(fg === 'SkyrimSE' || fg === OWN_PROCESS);
+  }, 500);
+}
+
+function refreshHotkeys() { const was = hotkeysActive; hotkeysActive = !was; setHotkeysActive(was); }
 
 // ---------- tray ----------
 function createTray() {
@@ -296,7 +290,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', async () => {
     // Don't pop up over a game in progress; just say how to open it.
-    if ((await bridgeCall('STATUS')) === 'STATUS:1') {
+    if (native.gameRunning()) {
       tray?.displayBalloon({ iconType: 'info', title: 'Dovah Trainer is running', content: `Press ${TOGGLE_KEY} in game to open it.` });
     } else {
       showOverlay();
@@ -317,24 +311,27 @@ app.on('second-instance', () => showOverlay());
 app.whenReady().then(async () => {
   loadConfig();
   if (!isGameDir(config.gamePath)) { config.gamePath = await detectGamePath(); saveConfig(); }
-  startBridge();
-  startHook();
+  startHotkeys();
   createWindow();
   createTray();
-  registerHotkeys();
 
   ipcMain.handle('run', (_e, cmds) => runCommands(cmds));
   ipcMain.handle('status', async () => ({
-    game: (await bridgeCall('STATUS')) === 'STATUS:1',
+    game: native.gameRunning(),
     pathOk: isGameDir(config.gamePath),
     display: readDisplay().mode,
+    subtitles: readDisplay().subtitles,
+    autoSkip: skip.auto,
   }));
   ipcMain.handle('display:fix', () => makeBorderless());
+  ipcMain.handle('subtitles:fix', () => enableSubtitles());
+  ipcMain.handle('autoskip:set', (_e, on) => { setAutoSkip(!!on, 'user'); return skip.auto; });
   ipcMain.handle('config:get', () => config);
   ipcMain.handle('config:set', (_e, patch) => {
-    const allowed = ['gamePath', 'consoleScan', 'keyDelay', 'hotkeys'];
+    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys'];
     for (const k of allowed) if (k in patch) config[k] = patch[k];
-    saveConfig(); registerHotkeys();
+    saveConfig();
+    refreshHotkeys();
     return config;
   });
   ipcMain.handle('config:browse', async () => {
@@ -365,5 +362,5 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => { quitting = true; });
-app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); bridge.proc?.kill(); hook.proc?.kill(); });
+app.on('will-quit', () => { quitting = true; globalShortcut.unregisterAll(); });
 app.on('window-all-closed', () => app.quit());

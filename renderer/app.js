@@ -3,12 +3,13 @@
   // Outside Electron (plain browser preview) use a mock bridge so the UI still works.
   const api = window.trainer || {
     run: async (c) => { console.log('[mock run]', c); await sleep(350); return { ok: true }; },
-    status: async () => ({ game: false, pathOk: true }),
+    status: async () => ({ game: false, pathOk: true, subtitles: false }),
     getConfig: async () => ({ gamePath: 'D:\\SteamLibrary\\steamapps\\common\\Skyrim Special Edition', consoleScan: 41, keyDelay: 45, hotkeys: true }),
     setConfig: async (p) => p, browseGame: async () => null, detectGame: async () => '',
     openLink: async (u) => window.open(u), window: () => {}, onHotkey: () => {},
     version: async () => 'dev', checkUpdate: async () => ({ dev: true }), installUpdate: async () => {}, onUpdate: () => {},
     onOverlay: () => {}, fixDisplay: async () => ({ ok: true }),
+    fixSubtitles: async () => ({ ok: true }), setAutoSkip: async (on) => on, onAutoSkip: () => {},
   };
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -50,7 +51,20 @@
     return res.ok;
   }
 
+  // Toggles handled by the main process instead of console commands.
+  function applyNative(key, on) {
+    if (on) state.toggles[key] = true; else delete state.toggles[key];
+    $(`#page .card[data-key="${key}"]`)?.classList.toggle('on', on);
+    updateCounts();
+  }
+
   async function setToggle(it, on, card) {
+    if (it.native === 'autoskip') {
+      if (on && state.subtitles === false) toast('Turn on dialogue subtitles first', 'Skyrim only lets you skip lines with subtitles on (see below)', true);
+      applyNative(it.key, await api.setAutoSkip(on));
+      log(`${it.name} ${on ? 'ON' : 'OFF'}`, [on ? 'presses Activate ~1/s for 45 seconds' : 'stopped'], { ok: true });
+      return;
+    }
     const ok = await run(on ? it.on : it.off, `${it.name} ${on ? 'ON' : 'OFF'}`, card);
     if (!ok) return;
     state.toggles[it.key] = on;
@@ -138,6 +152,13 @@
         return `<div class="card toggle ${state.toggles[it.key] ? 'on' : ''}" ${k} role="switch" tabindex="0">${meta(it)}<div class="switch"></div></div>`;
       case 'button':
         return `<div class="card" ${k}>${meta(it)}<button class="btn ${it.danger ? 'danger' : ''}" data-act>${esc(it.label)}</button></div>`;
+      case 'note':
+        return `<div class="card" ${k}><span class="kbd" style="font-size:12px;padding:4px 9px">F11</span>${meta(it)}</div>`;
+      case 'subtitles':
+        return `<div class="card wide subs ${state.subtitles === false ? 'warn' : ''}" ${k}>
+          <div class="meta"><h4>Dialogue subtitles: <span class="subs-state">${state.subtitles === false ? 'OFF' : 'ON'}</span></h4>
+          <p>Skyrim only lets you skip lines with subtitles on. To turn them on while playing, go to <b>System › Settings › Display › Dialogue Subtitles</b>. If the game is closed, use this button instead.</p></div>
+          <button class="btn" data-act ${state.subtitles === false ? '' : 'disabled'}>Turn on</button></div>`;
       case 'number':
         return `<div class="card" ${k}>${meta(it)}<div class="row"><input class="field" type="number" min="${it.min}" max="${it.max}" value="${it.value}"><button class="btn" data-act>${esc(it.label)}</button></div></div>`;
       case 'chips':
@@ -163,6 +184,14 @@
         const flip = () => setToggle(it, !state.toggles[it.key], card);
         card.addEventListener('click', flip);
         card.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); } });
+      } else if (it.type === 'subtitles') {
+        $('[data-act]', card).addEventListener('click', async () => {
+          const r = await api.fixSubtitles();
+          if (!r.ok) return toast('Could not change subtitles', r.error, true);
+          state.subtitles = true;
+          toast('Dialogue subtitles turned on', 'Applies the next time you start Skyrim');
+          go(state.tab);
+        });
       } else if (it.type === 'button') {
         $('[data-act]', card).addEventListener('click', () => {
           if (it.danger && !confirm(`${it.name}?\n\n${it.desc}`)) return;
@@ -260,7 +289,9 @@
             <input class="field" id="scan" value="${scanHex}" style="width:90px"></div>
           <div class="card" style="--i:2"><div class="meta"><h4>Key delay (ms)</h4><p>Raise this if commands are cut off or the console doesn't open in time.</p></div>
             <input class="field" id="delay" type="number" min="15" max="300" value="${c.keyDelay}" style="width:90px"></div>
-          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats while Skyrim is focused. Insert always opens the trainer.</p></div><div class="switch"></div></div>
+          <div class="card" style="--i:3"><div class="meta"><h4>Activate key scan code</h4><p>Used to skip dialogue. 0x12 is E. Change it if you rebound Activate in game.</p></div>
+            <input class="field" id="act-scan" value="0x${Number(c.activateScan ?? 0x12).toString(16).toUpperCase()}" style="width:90px"></div>
+          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats and F11 toggles dialogue skipping, while Skyrim or the trainer is the active window. Uses standard Windows hotkeys; the keyboard is never monitored.</p></div><div class="switch"></div></div>
         </div></section>
         <section class="section"><div class="section-title">Updates</div><div class="grid">
           <div class="card wide" style="--i:4"><div class="meta"><h4>Version <span class="ver">${esc(state.version)}</span></h4>
@@ -268,7 +299,8 @@
             <div class="row"><button class="btn frost" id="upd-check">Check for updates</button><button class="btn" id="upd-notes">Release notes</button><button class="ghost" data-win="quit">Quit trainer</button></div></div>
         </div></section>
         <section class="section"><div class="section-title">Hotkey map</div><div class="grid">
-          ${[...hotkeys].map(([k, it], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">${k}</span><div class="meta"><h4>${esc(it.name)}</h4></div></div>`).join('')}
+          ${[['Insert', 'Open / close trainer'], ...[...hotkeys].map(([k, it]) => [k, it.name])]
+            .map(([k, name], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">${k}</span><div class="meta"><h4>${esc(name)}</h4></div></div>`).join('')}
         </div></section>`;
     },
   };
@@ -344,6 +376,11 @@
         if (!(v > 0 && v < 256)) return toast('Invalid scan code', 'Use a value like 0x29', true);
         state.config = await api.setConfig({ consoleScan: v }); toast('Console key saved', '0x' + v.toString(16).toUpperCase());
       });
+      $('#act-scan').addEventListener('change', async (e) => {
+        const v = parseInt(e.target.value, e.target.value.trim().toLowerCase().startsWith('0x') ? 16 : 10);
+        if (!(v > 0 && v < 256)) return toast('Invalid scan code', 'Use a value like 0x12', true);
+        state.config = await api.setConfig({ activateScan: v }); toast('Activate key saved', '0x' + v.toString(16).toUpperCase());
+      });
       $('#delay').addEventListener('change', async (e) => {
         const v = Math.min(300, Math.max(15, Math.round(Number(e.target.value)) || 45));
         e.target.value = v; state.config = await api.setConfig({ keyDelay: v }); toast('Key delay saved', v + ' ms');
@@ -409,6 +446,13 @@
     const el = $('#status');
     el.className = 'status ' + (!s.pathOk ? 'warn' : s.game ? 'on' : 'off');
     $('span', el).textContent = !s.pathOk ? 'Set game folder in Settings' : s.game ? 'Skyrim connected' : 'Waiting for Skyrim…';
+    if (typeof s.autoSkip === 'boolean' && !!state.toggles.autoskip !== s.autoSkip) applyNative('autoskip', s.autoSkip);
+    if (typeof s.subtitles === 'boolean' && s.subtitles !== state.subtitles) {
+      const first = state.subtitles === undefined;
+      state.subtitles = s.subtitles;
+      if (!first && state.tab === 'world') go('world');
+      else { const c = $('#page .card.subs'); if (c) { c.classList.toggle('warn', !s.subtitles); $('.subs-state', c).textContent = s.subtitles ? 'ON' : 'OFF'; $('[data-act]', c).disabled = s.subtitles; } }
+    }
     $('#display-warn').hidden = s.display !== 'fullscreen';
     const po = $('#path-ok');
     if (po) po.innerHTML = s.pathOk ? '<span class="pill-ok">● valid</span>' : '<span class="pill-bad">● SkyrimSE.exe not found</span>';
@@ -491,8 +535,14 @@
     toast('Skyrim set to Borderless Windowed', 'Start the game, then press Insert to open the trainer');
   });
 
+  api.onAutoSkip(({ on, reason }) => {
+    applyNative('autoskip', on);
+    if (!on && reason === 'timeout') toast('Auto-Skip stopped', 'Turned off after 45 seconds');
+  });
+
   $('#reset-all').addEventListener('click', async () => {
-    const active = Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter(Boolean);
+    if (state.toggles.autoskip) applyNative('autoskip', await api.setAutoSkip(false));
+    const active = Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter((it) => it && !it.native);
     if (!active.length) return toast('Nothing to turn off', 'No toggles are active');
     const ok = await run(active.flatMap((it) => it.off), `Disabled ${active.length} cheat${active.length > 1 ? 's' : ''}`, null);
     if (!ok) return;
@@ -513,6 +563,8 @@
   (async function init() {
     state.config = await api.getConfig();
     state.version = await api.version();
+    delete state.toggles.autoskip; // lives in the main process; synced by refreshStatus
+    try { const s = await api.status(); state.subtitles = s.subtitles; } catch { /* status unavailable */ }
     renderNav();
     $('#log-list').innerHTML = '<li class="empty" style="border:0;background:none;animation:none">Nothing yet — flip a cheat to get started.</li>';
     go(state.tab);

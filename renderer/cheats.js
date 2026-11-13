@@ -6,7 +6,45 @@ const SKILLS = ['OneHanded', 'TwoHanded', 'Marksman', 'Block', 'Smithing', 'Heav
   'Lockpicking', 'Sneak', 'Alchemy', 'Speechcraft', 'Alteration', 'Conjuration', 'Destruction', 'Illusion', 'Restoration', 'Enchanting'];
 
 // Hold crime factions (for clearing bounties).
-const CRIME_FACTIONS = ['000267EA', '0002816B', '00029DB0', '000267E3', '0002816C', '00028170', '0002816D', '0002816E', '0002816F'];
+const HOLDS = [
+  ['000267EA', 'Whiterun Hold'], ['0002816B', 'The Rift (Riften)'], ['00029DB0', 'Haafingar (Solitude)'],
+  ['000267E3', 'Eastmarch (Windhelm)'], ['0002816C', 'The Reach (Markarth)'], ['00028170', 'Falkreath Hold'],
+  ['0002816D', 'Hjaalmarch (Morthal)'], ['0002816E', 'The Pale (Dawnstar)'], ['0002816F', 'Winterhold'],
+];
+const CRIME_FACTIONS = HOLDS.map(([id]) => id);
+// paycrimegold <go to jail 0/1> <remove stolen items 0/1> <faction>
+const clearBounty = (f) => `player.paycrimegold 0 0 ${f}`;
+
+// Junk misc items, FormIDs from UESP "Skyrim:Miscellaneous Items" (base game only).
+// Worthless clutter: tableware, kitchenware, tools with no crafting use.
+const JUNK = [
+  '98626', '98627', 'b9bcc', 'b9bd8', 'f08fa', 'f08fb', // Bowl
+  '318fa', '318fb', // Cast Iron Pot
+  'b9bdc', 'f08f8', // Cup
+  'aebf3', 'aebf4', 'aebf7', // Fork, Spoon, Knife
+  '98620', '98621', 'b9bda', 'f08f9', // Goblet
+  '8632c', '98623', 'b9bd6', 'b9bde', 'f08f1', 'f08f3', // Jug
+  '12fe6', // Kettle
+  '98624', 'b9bd0', 'e2617', 'e2618', 'f08f5', // Plate
+  '319e3', '3199a', '319e5', '31941', // Tankard, Wooden Bowl, Wooden Ladle, Wooden Plate
+  '12fe7', '12fe8', '12fe9', '12fea', '12feb', '12fec', '9baf8', 'abd30', // Basket
+  '5cadf', '5cae0', '5cae1', // Bellows, Tongs, Hammer
+  '12fdf', '747fb', '747fe', // Bucket
+  'e3cb7', 'f03f8', // Burned Book, Empty Skooma Bottle
+  'f2012', 'f2013', 'f2014', 'f2015', 'fed17', // Empty Wine Bottle
+  '4c3c6', '4c3c8', // Inkwell, Quill
+  '318ec', // Lantern
+  'f5d07', 'f5d08', 'f5d0a', 'f5d05', 'f5d06', // Pitchfork, Saw, Shovel
+  'b9bd2', 'f08f6', 'b9bd4', 'f08f7', // Pot
+];
+// Clutter that sells for a bit more: candlesticks, Dwemer tableware, instruments, urns.
+const CLUTTER = [
+  'e42df', 'e42e0', 'e42e1', 'aa03e', // Candlestick, Silver Candlestick
+  '8632a', // Glazed Urn
+  '25c13', '25c68', 'e1fc3', '27f07', '27f08', '27f09', '27f03', '27f12', '27f15', // Dwemer bowls, cups, pans, plate
+  'daba9', 'daba7', 'dabab', // Drum, Flute, Lute
+];
+const removeAll = (ids) => ids.map((id) => `player.removeitem ${id} 1000`);
 
 // Speed changes only apply once carry weight changes, so nudge it.
 const speedCmds = (v) => [`player.setav speedmult ${v}`, 'player.modav carryweight 1', 'player.modav carryweight -1'];
@@ -71,7 +109,7 @@ window.TABS = [
     ],
   },
   {
-    id: 'world', label: 'World', icon: 'globe', blurb: 'Time, AI, map and teleports',
+    id: 'world', label: 'World', icon: 'globe', blurb: 'Time, crime, map, dialogue and teleports',
     sections: [
       {
         title: 'Time',
@@ -86,9 +124,41 @@ window.TABS = [
           { type: 'toggle', id: 'freezeai', name: 'Freeze All NPCs', desc: 'Toggle AI processing.', on: ['tai'], off: ['tai'], hotkey: 'F10' },
           { type: 'toggle', id: 'nocombat', name: 'Peaceful NPCs', desc: 'Toggle combat AI — nobody fights.', on: ['tcai'], off: ['tcai'] },
           { type: 'toggle', id: 'flycam', name: 'Free Camera', desc: 'Detach the camera to fly around.', on: ['tfc'], off: ['tfc'] },
-          { type: 'button', name: 'Reveal All Map Markers', desc: 'Show every location on the map.', label: 'Reveal', cmds: ['tmm 1'] },
-          { type: 'button', name: 'Clear All Bounties', desc: 'Pay off every hold bounty for free.', label: 'Clear', cmds: CRIME_FACTIONS.map((f) => `player.paycrimegold 0 0 ${f}`) },
           { type: 'button', name: 'Kill Nearby NPCs', desc: 'Kills every loaded, non-essential actor around you.', label: 'Kill all', danger: true, cmds: ['killall'] },
+        ],
+      },
+      {
+        title: 'Crime & Bounty',
+        items: [
+          { type: 'button', name: 'Remove All Bounties', desc: 'Wipes your bounty in every hold for free. No jail, and you keep stolen items.', label: 'Clear all', cmds: CRIME_FACTIONS.map(clearBounty) },
+          { type: 'select', name: 'Remove Bounty in One Hold', desc: 'Clear the bounty in a single hold only.', label: 'Clear', options: HOLDS, cmds: (v) => [clearBounty(v)] },
+          { type: 'button', name: 'Call Off the Guards', desc: 'Stops guards and NPCs who are already chasing or attacking you. Pair it with Remove All Bounties.', label: 'Calm', cmds: [...CRIME_FACTIONS.map(clearBounty), 'player.stopcombatalarm'] },
+        ],
+      },
+      {
+        title: 'Game Tools',
+        items: [
+          { type: 'button', name: 'Quick Save', desc: 'Saves to a "DovahQuick" slot from the console. Useful before trying risky cheats.', label: 'Save', cmds: ['save DovahQuick'] },
+          { type: 'button', name: 'Load Quick Save', desc: 'Loads the "DovahQuick" save. Unsaved progress is lost.', label: 'Load', danger: true, cmds: ['load DovahQuick'] },
+          { type: 'toggle', id: 'hud', name: 'Hide HUD & Menus', desc: 'Clean screenshots. Press again (or use the trainer) to bring the HUD back.', on: ['tm'], off: ['tm'] },
+          { type: 'slider', name: 'Slow Motion', desc: 'Global game speed (1 = normal). Lower for bullet time.', min: 0.1, max: 2, step: 0.1, value: 1, unit: 'x', cmds: (v) => [`sgtm ${v}`] },
+          { type: 'button', name: 'Free Up Memory', desc: 'Purges cached cells. Can fix stutter after long sessions.', label: 'Purge', cmds: ['pcb'] },
+        ],
+      },
+      {
+        title: 'Map & Fast Travel',
+        items: [
+          // tmm <show>,<set discovered>,<include hidden>  (UESP: ToggleMapMarkers)
+          { type: 'button', name: 'Unlock All Waypoints', desc: 'Every map marker, hidden ones too, becomes discovered, so you can fast travel anywhere. Only loading an older save undoes this.', label: 'Unlock all', danger: true, cmds: ['tmm 1,1,1'] },
+          { type: 'button', name: 'Reveal Map Only', desc: 'Shows every location on the map but keeps them undiscovered. You still have to visit a place to fast travel there.', label: 'Reveal', cmds: ['tmm 1,0,1'] },
+        ],
+      },
+      {
+        title: 'Dialogue',
+        items: [
+          { type: 'toggle', id: 'autoskip', native: 'autoskip', name: 'Auto-Skip Dialogue', hotkey: 'F11',
+            desc: 'Press F11 when a conversation starts. It presses Activate about once a second to skip NPC lines, and also picks the highlighted reply. Stops after 45 seconds, or press F11 again.' },
+          { type: 'subtitles' },
         ],
       },
       {
@@ -108,7 +178,7 @@ window.TABS = [
     ],
   },
   {
-    id: 'money', label: 'Money', icon: 'coins', blurb: 'Septims, lockpicks and loot',
+    id: 'money', label: 'Money', icon: 'coins', blurb: 'Add or remove septims',
     sections: [
       {
         title: 'Gold',
@@ -116,6 +186,19 @@ window.TABS = [
           { type: 'chips', name: 'Quick Gold', desc: 'Add gold straight to your purse.', options: [1000, 10000, 100000, 1000000], fmt: (v) => `+${v.toLocaleString()}`, cmds: (v) => [`player.additem f ${v}`] },
           { type: 'number', name: 'Custom Amount', desc: 'Add any amount of gold.', value: 5000, min: 1, max: 99999999, label: 'Add', cmds: (v) => [`player.additem f ${v}`] },
           { type: 'number', name: 'Remove Gold', desc: 'Take gold away (for challenge runs).', value: 1000, min: 1, max: 99999999, label: 'Remove', cmds: (v) => [`player.removeitem f ${v}`] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'inventory', label: 'Inventory', icon: 'bag', blurb: 'Junk removal and supplies',
+    sections: [
+      {
+        title: 'Junk Removal',
+        items: [
+          { type: 'button', name: 'Quick Junk Removal', desc: `Deletes 29 kinds of worthless clutter: bowls, plates, cups, baskets, buckets, pots, tools, empty bottles and more. Crafting materials, gems and quest items are never touched.`, label: 'Remove junk', cmds: removeAll(JUNK) },
+          { type: 'button', name: 'Remove Sellable Clutter', desc: 'Also deletes candlesticks, Dwemer tableware, instruments and urns, which sell for a few gold each.', label: 'Remove', danger: true, cmds: removeAll(CLUTTER) },
+          { type: 'button', name: 'Lighten My Load', desc: 'Removes all junk and sellable clutter in one go.', label: 'Clean up', danger: true, cmds: removeAll([...JUNK, ...CLUTTER]) },
         ],
       },
       {

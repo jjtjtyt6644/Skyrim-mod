@@ -1,7 +1,7 @@
 {
   "name": "skyrim-trainer",
   "productName": "Dovah Trainer",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Electron trainer for Skyrim Special Edition (single-player). Drives the in-game console via batch files.",
   "main": "main.js",
   "repository": "https://github.com/jjtjtyt6644/Skyrim-mod",
@@ -12,7 +12,8 @@
   "author": "jjtjtyt6644",
   "license": "MIT",
   "dependencies": {
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "koffi": "^2.16.3"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -22,15 +23,36 @@
     "appId": "io.github.jjtjtyt6644.dovahtrainer",
     "productName": "Dovah Trainer",
     "artifactName": "DovahTrainer-Setup-${version}.${ext}",
-    "files": ["main.js", "preload.js", "renderer/**", "bridge/**"],
-    "asarUnpack": ["bridge/**"],
-    "win": { "target": "nsis", "icon": "renderer/icon.png" },
+    "files": [
+      "main.js",
+      "native.js",
+      "preload.js",
+      "renderer/**",
+      "!node_modules/koffi/build/koffi/{darwin,freebsd,linux,musl,openbsd}_*/**",
+      "!node_modules/koffi/build/koffi/win32_{arm64,ia32}/**",
+      "!node_modules/koffi/src/**",
+      "!node_modules/koffi/vendor/**"
+    ],
+    "asarUnpack": [
+      "node_modules/koffi/build/koffi/win32_x64/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "renderer/icon.png"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": true,
       "shortcutName": "Dovah Trainer"
     },
-    "publish": [{ "provider": "github", "owner": "jjtjtyt6644", "repo": "Skyrim-mod", "releaseType": "release" }]
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jjtjtyt6644",
+        "repo": "Skyrim-mod",
+        "releaseType": "release"
+      }
+    ]
   }
 }

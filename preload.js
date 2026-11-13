@@ -16,4 +16,7 @@ contextBridge.exposeInMainWorld('trainer', {
   onUpdate: (fn) => ipcRenderer.on('update', (_e, info) => fn(info)),
   onOverlay: (fn) => ipcRenderer.on('overlay', (_e, open) => fn(open)),
   fixDisplay: () => ipcRenderer.invoke('display:fix'),
+  fixSubtitles: () => ipcRenderer.invoke('subtitles:fix'),
+  setAutoSkip: (on) => ipcRenderer.invoke('autoskip:set', on),
+  onAutoSkip: (fn) => ipcRenderer.on('autoskip', (_e, s) => fn(s)),
 });
