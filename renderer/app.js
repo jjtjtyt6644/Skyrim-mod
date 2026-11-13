@@ -216,9 +216,6 @@
       case 'pick':
         return `<div class="card wide" ${k}>${meta(it)}<div class="row"><select class="field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
           <input class="field num" type="number" min="${it.min}" max="${it.max}" value="${it.value}"><button class="btn" data-act>${esc(it.label)}</button></div></div>`;
-      case 'quest':
-        return `<div class="card wide quest" ${k}>${meta(it)}<div class="row"><select class="field wide-field">${it.options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
-          <button class="btn secondary" data-go title="Teleport to this quest's current objective">Go to objective</button><button class="btn" data-done>Complete</button></div></div>`;
       case 'text':
         return `<div class="card wide" ${k}>${meta(it)}<div class="row"><input class="field wide-field" placeholder="${esc(it.placeholder || '')}" spellcheck="false">
           <button class="btn ${it.danger ? 'danger' : ''}" data-act>${esc(it.label)}</button></div></div>`;
@@ -231,9 +228,6 @@
       }
       case 'savenow':
         return `<div class="card" ${k}>${meta(it)}<button class="btn" data-act>Save now</button></div>`;
-      case 'questid':
-        return `<div class="card wide quest" ${k}>${meta(it)}<div class="row"><input class="field wide-field" placeholder="Quest ID, e.g. DA01" spellcheck="false">
-          <button class="btn secondary" data-go>Go to objective</button><button class="btn" data-done>Complete</button></div></div>`;
       case 'slider': {
         const v = store.get('slider:' + it.key, it.value);
         return `<div class="card slider-card" ${k}>${meta(it)}<div class="slider-val">${v}${it.unit || ''}</div>
@@ -323,21 +317,6 @@
           if (!Number.isFinite(v) || v < it.min || v > it.max) return toast('Invalid value', `Enter ${it.min}–${it.max}`, true);
           run(it.cmds(sel.value, v), `${it.name}: ${sel.selectedOptions[0].text} ${v.toLocaleString()}`, card);
         });
-      } else if (it.type === 'quest' || it.type === 'questid') {
-        const field = $('select, input', card);
-        const quest = () => {
-          const id = field.value.trim();
-          if (!/^[A-Za-z0-9_]{2,40}$/.test(id)) { toast('Enter a quest ID', 'Letters, numbers and _ only, e.g. MQ101', true); return null; }
-          return { id, name: field.tagName === 'SELECT' ? field.selectedOptions[0].text : id };
-        };
-        $('[data-go]', card).addEventListener('click', () => {
-          const q = quest(); if (q) run([`movetoqt ${q.id}`], `Go to objective: ${q.name}`, card);
-        });
-        $('[data-done]', card).addEventListener('click', () => {
-          const q = quest(); if (!q) return;
-          if (!confirm(`Complete "${q.name}"?\n\nThe quest is marked done right away. Rewards that are handed out in dialogue may be skipped, and the next quest may not start by itself. Quick Save first if you're unsure.`)) return;
-          run([`completequest ${q.id}`], `Completed: ${q.name}`, card);
-        });
       } else if (it.type === 'slider') {
         const r = $('input', card), out = $('.slider-val', card);
         fillRange(r);
@@ -391,6 +370,28 @@
             <div class="meta"><h4>Steam Achievement Manager</h4><p>Open-source tool by gibbed for unlocking or relocking Steam achievements.</p></div>
             <button class="btn frost" id="sam">Open on GitHub</button></div>
         </div>`;
+    },
+
+    quests() {
+      const cats = window.QUEST_DATA || [];
+      const total = cats.reduce((n, c) => n + c.quests.length, 0);
+      return `
+        <div class="notice"><b>How quests are finished:</b> <b>Finish properly</b> runs the quest's own ending stage, the same script that
+          fires when you finish it normally. That hands out rewards and starts the next quest, which <i>completequest</i> skips.
+          <b>Next step</b> moves you forward one stage at a time; each stage runs its own script, so items and NPCs are set up as if you
+          played it. A backup save (<b>DovahQuestBackup</b>) is made before every change. Stage data comes from UESP.</div>
+        <div class="quest-tools">
+          <input class="field" id="q-search" placeholder="Search ${total} quests by name or ID" spellcheck="false">
+          <select class="field" id="q-cat"><option value="">All questlines</option>${cats.map((c, i) => `<option value="${i}">${esc(c.cat)} (${c.quests.length})</option>`).join('')}</select>
+        </div>
+        <div class="quest-layout">
+          <div class="quest-list" id="q-list"></div>
+          <div class="quest-detail" id="q-detail"><div class="empty-note">Pick a quest on the left.</div></div>
+        </div>
+        <section class="section" style="margin-top:22px"><div class="section-title">Advanced</div>
+          <div class="card wide"><div class="meta"><h4>Complete ALL Quests</h4><p>Runs every quest to its end at once (caqs). This WILL break your game: NPCs vanish and questlines lock up. Only for a throwaway save.</p></div>
+          <button class="btn danger" id="q-caqs">Complete all</button></div>
+        </section>`;
     },
 
     mods() {
@@ -459,6 +460,88 @@
   };
 
   const BIND = {
+    quests() {
+      const cats = window.QUEST_DATA || [];
+      const all = cats.flatMap((c, ci) => c.quests.map((q) => ({ ...q, cat: c.cat, ci })));
+      const qs = state.questUI || (state.questUI = { cat: '', search: '', id: null, cur: {} });
+      $('#q-search').value = qs.search;
+      $('#q-cat').value = qs.cat;
+      const backup = 'save DovahQuestBackup';
+
+      const renderList = () => {
+        const term = qs.search.trim().toLowerCase();
+        const list = all.filter((q) => (qs.cat === '' || String(q.ci) === qs.cat) && (!term || q.name.toLowerCase().includes(term) || q.id.toLowerCase().includes(term) || q.cat.toLowerCase().includes(term)));
+        const seen = new Set();
+        const rows = list.filter((q) => { const k = q.id + (qs.cat === '' ? '' : q.ci); if (seen.has(k)) return false; seen.add(k); return true; });
+        $('#q-list').innerHTML = rows.length ? rows.map((q) => `<button class="q-item ${q.id === qs.id ? 'on' : ''}" data-id="${esc(q.id)}">
+            <span class="q-name">${esc(q.name)}</span><span class="q-meta">${esc(q.id)}${qs.cat === '' ? ' · ' + esc(q.cat) : ''}</span></button>`).join('')
+          : '<div class="empty-note">No quests match.</div>';
+        $$('#q-list .q-item').forEach((b) => b.addEventListener('click', () => { qs.id = b.dataset.id; renderList(); renderDetail(); }));
+      };
+
+      const stageLabel = (q, s) => `stage ${s}`;
+      const renderDetail = () => {
+        const q = all.find((x) => x.id === qs.id);
+        const box = $('#q-detail');
+        if (!q) { box.innerHTML = '<div class="empty-note">Pick a quest on the left.</div>'; return; }
+        const cur = qs.cur[q.id] ?? null;
+        const curIdx = q.stages.findIndex(([s]) => s === cur);
+        const next = q.stages.slice(curIdx + 1).find(([, f]) => f !== 2);
+        box.innerHTML = `
+          <div class="q-head"><div><h3>${esc(q.name)}</h3><p>${esc(q.id)} · ${esc(q.cat)}${q.end != null ? ` · ends at stage ${q.end}` : ''}</p></div></div>
+          <div class="row q-actions">
+            <button class="btn secondary" id="q-start" title="Start the quest if you don't have it yet">Start quest</button>
+            <button class="btn secondary" id="q-go" title="Teleport to the current objective">Go to objective</button>
+            <button class="btn" id="q-finish" ${q.end == null ? 'disabled title="UESP lists no finishing stage for this quest"' : ''}>Finish properly</button>
+          </div>
+          <div class="q-steps-head"><b>Where are you in this quest?</b> <span>Click your current stage, then use <i>Next step</i>.</span></div>
+          <ol class="q-stages">${q.stages.map(([s, f, t]) => `
+            <li class="${s === cur ? 'cur' : ''} ${f === 1 ? 'fin' : ''} ${f === 2 ? 'fail' : ''}" data-s="${s}">
+              <span class="q-s">${s}</span><span class="q-t">${esc(t || 'No journal text')}</span>
+              ${f === 1 ? '<span class="q-badge ok">Ends quest</span>' : ''}${f === 2 ? '<span class="q-badge bad">Fails quest</span>' : ''}
+              <button class="chip q-jump" data-jump="${s}" title="Set the quest to this stage">Jump here</button></li>`).join('')}</ol>
+          <div class="row q-actions" style="justify-content:flex-start">
+            <button class="btn" id="q-next" ${next ? '' : 'disabled'}>${next ? `Next step → ${stageLabel(q, next[0])}` : 'Next step'}</button>
+            <span class="q-hint">${cur == null ? 'Select your current stage first (or start from the top).' : next ? (next[2] || '').slice(0, 80) : 'This is the last stage.'}</span>
+          </div>`;
+
+        const setStage = async (s, label) => {
+          const ok = await run([backup, `setstage ${q.id} ${s}`], label, null);
+          if (ok) { qs.cur[q.id] = s; renderDetail(); }
+          return ok;
+        };
+        $$('.q-stages li', box).forEach((li) => li.addEventListener('click', (e) => {
+          if (e.target.closest('.q-jump')) return;
+          qs.cur[q.id] = Number(li.dataset.s); renderDetail();
+        }));
+        $$('.q-jump', box).forEach((b) => b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const s = Number(b.dataset.jump);
+          const st = q.stages.find(([x]) => x === s);
+          if (st[1] === 2 && !confirm(`Stage ${s} FAILS "${q.name}". Jump there anyway?`)) return;
+          setStage(s, `${q.name}: stage ${s}`);
+        }));
+        $('#q-next', box).addEventListener('click', () => {
+          const n = next || q.stages.find(([, f]) => f !== 2);
+          if (n) setStage(n[0], `${q.name}: next step (stage ${n[0]})`);
+        });
+        $('#q-start', box).addEventListener('click', () => run([backup, `startquest ${q.id}`], `Started: ${q.name}`, null));
+        $('#q-go', box).addEventListener('click', () => run([`movetoqt ${q.id}`], `Go to objective: ${q.name}`, null));
+        $('#q-finish', box).addEventListener('click', () => {
+          if (q.end == null) return;
+          if (!confirm(`Finish "${q.name}" properly?\n\nThis runs its ending stage (${q.end}), which gives the rewards and starts the next quest, like finishing it yourself.\n\nSteps in the middle are skipped, so items you would have picked up along the way may be missing. To get everything, use "Next step" a few times instead.\n\nA backup save (DovahQuestBackup) is made first.`)) return;
+          setStage(q.end, `Finished: ${q.name}`);
+        });
+      };
+
+      $('#q-search').addEventListener('input', (e) => { qs.search = e.target.value; renderList(); });
+      $('#q-cat').addEventListener('change', (e) => { qs.cat = e.target.value; renderList(); });
+      $('#q-caqs').addEventListener('click', () => {
+        if (confirm('Complete ALL quests?\n\nThis WILL break your save. Only do this on a throwaway save.')) run(['caqs'], 'Complete all quests', null);
+      });
+      renderList(); renderDetail();
+    },
+
     async mods() {
       const m = api.mods;
       const renderPlugins = async () => {

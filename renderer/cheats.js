@@ -8,34 +8,6 @@ const SKILLS = ['OneHanded', 'TwoHanded', 'Marksman', 'Block', 'Smithing', 'Heav
 const SKILL_LABELS = { OneHanded: 'One-Handed', TwoHanded: 'Two-Handed', Marksman: 'Archery', HeavyArmor: 'Heavy Armor', LightArmor: 'Light Armor', Speechcraft: 'Speech' };
 const SKILL_NAMES = SKILLS.map((s) => [s, SKILL_LABELS[s] || s]);
 
-// Quest IDs from each quest's page on UESP (en.uesp.net/wiki/Skyrim:<Quest>).
-// completequest <id> finishes the quest; movetoqt <id> teleports you to its current objective.
-const QUEST_LINES = [
-  { name: 'Main Quest', desc: 'The Dragonborn story, from Helgen to Sovngarde.', quests: [
-    ['MQ101', 'Unbound'], ['MQ102', 'Before the Storm'], ['MQ103', 'Bleak Falls Barrow'], ['MQ104', 'Dragon Rising'],
-    ['MQ105', 'The Way of the Voice'], ['MQ105Ustengrav', 'The Horn of Jurgen Windcaller'], ['MQ106', 'A Blade in the Dark'],
-    ['MQ201', 'Diplomatic Immunity'], ['MQ202', 'A Cornered Rat'], ['MQ203', "Alduin's Wall"], ['MQ204', 'The Throat of the World'],
-    ['MQ205', 'Elder Knowledge'], ['MQ206', "Alduin's Bane"], ['MQ301', 'The Fallen'], ['MQ302', 'Season Unending'],
-    ['MQ303', "The World-Eater's Eyrie"], ['MQ304', 'Sovngarde'], ['MQ305', 'Dragonslayer'],
-  ] },
-  { name: 'Companions', desc: 'Jorrvaskr and the Circle.', quests: [
-    ['C00', 'Take Up Arms'], ['C01', 'Proving Honor'], ['C03', 'The Silver Hand'], ['C04', "Blood's Honor"], ['C05', 'Purity of Revenge'], ['C06', 'Glory of the Dead'],
-  ] },
-  { name: 'College of Winterhold', desc: 'The mages’ questline.', quests: [
-    ['MG01', 'First Lessons'], ['MG02', 'Under Saarthal'], ['MG03', 'Hitting the Books'], ['MG04', 'Good Intentions'],
-    ['MG05', 'Containment'], ['MG06', 'Revealing the Unseen'], ['MG07', 'The Staff of Magnus'], ['MG08', 'The Eye of Magnus'],
-  ] },
-  { name: 'Thieves Guild', desc: 'Riften’s Ratway and the Nightingales.', quests: [
-    ['TG00', 'A Chance Arrangement'], ['TG01', 'Taking Care of Business'], ['TG02', 'Loud and Clear'], ['TG03', 'Dampened Spirits'],
-    ['TG04', "Scoundrel's Folly"], ['TG05', 'Speaking With Silence'], ['TG06', 'Hard Answers'], ['TG07', 'The Pursuit'],
-    ['TG08A', 'Trinity Restored'], ['TG08B', 'Blindsighted'], ['TG09', 'Darkness Returns'],
-  ] },
-  { name: 'Dark Brotherhood', desc: 'The Family’s contracts.', quests: [
-    ['DB02', 'With Friends Like These...'], ['DB02a', 'Sanctuary'], ['DB04a', 'The Silence Has Been Broken'], ['DB05', 'Bound Until Death'],
-    ['DB06', 'Breaching Security'], ['DB11', 'Hail Sithis!'],
-  ] },
-];
-
 // Hold crime factions (for clearing bounties).
 const HOLDS = [
   ['000267EA', 'Whiterun Hold'], ['0002816B', 'The Rift (Riften)'], ['00029DB0', 'Haafingar (Solitude)'],
@@ -205,24 +177,8 @@ window.TABS = [
     ],
   },
   { id: 'mods', label: 'Mods', icon: 'puzzle', blurb: 'Your plugins, quick installs and Nexus Mods', custom: 'mods' },
-  {
-    id: 'quests', label: 'Quests', icon: 'scroll', blurb: 'Finish quests or jump to their objectives',
-    sections: [
-      {
-        title: 'Story Questlines',
-        items: QUEST_LINES.map((line) => ({
-          type: 'quest', name: line.name, desc: line.desc, options: line.quests,
-        })),
-      },
-      {
-        title: 'Any Quest',
-        items: [
-          { type: 'questid', name: 'Quest by ID', desc: 'Type any quest ID (shown on its UESP page, e.g. MQ101, C00, DA01). Works for side quests and Daedric quests too.' },
-          { type: 'button', name: 'Complete ALL Quests', desc: 'Runs every quest to its end at once. This WILL break your game: NPCs vanish, questlines lock up. Only for a throwaway save.', label: 'Complete all', danger: true, cmds: ['caqs'] },
-        ],
-      },
-    ],
-  },
+  // Quest data (IDs + stages) comes from quests-data.js, collected from UESP.
+  { id: 'quests', label: 'Quests', icon: 'scroll', blurb: 'Finish quests properly or move through them step by step', custom: 'quests' },
   {
     id: 'world', label: 'World', icon: 'globe', blurb: 'Time, crime, map, dialogue and teleports',
     sections: [

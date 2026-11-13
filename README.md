@@ -65,9 +65,10 @@ The trainer never reads or monitors the keyboard. There's no PowerShell, no keyb
 
 ## Quests
 
-- Pick a quest from the Main Quest, Companions, College, Thieves Guild or Dark Brotherhood list, then use **Complete** (`completequest <id>`) or **Go to objective** (`movetoqt <id>`). The IDs come from UESP.
-- **Quest by ID** works for any quest, including side and Daedric quests.
-- Completing a quest by console can skip rewards that are handed out in dialogue, and the next quest might not start. Quick Save first.
+- 395 quests with 2,177 stages are bundled in `renderer/quests-data.js`. They come from the "Quest Stages" tables on UESP and cover the Main Quest, Dawnguard, Dragonborn, the Civil War (both sides), the Companions, the College, the Thieves Guild, the Dark Brotherhood, Daedric, Divine, Side and Dungeon quests. UESP's ✓ "Finishes quest" and ✗ "Fails quest" markers are kept, so the trainer knows the proper ending of each quest.
+- **Finish properly** runs `setstage <id> <ending stage>`, which runs the quest's own ending script, the same one that fires when you finish it yourself. That gives the rewards and starts the next quest. (`completequest` only marks a quest done without running its scripts, so the trainer doesn't use it anymore.)
+- **Next step** and **Jump here** move a quest one stage at a time. Each stage runs its own script, so items and NPCs are set up as if you played that part. Use this when you want everything a quest gives along the way.
+- **Start quest** (`startquest`) and **Go to objective** (`movetoqt`) are there too. Every quest change first saves to `DovahQuestBackup`.
 - **Complete ALL Quests** (`caqs`) breaks a save. Only use it on a throwaway save.
 
 ## Crime, inventory and game tools
