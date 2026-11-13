@@ -12,7 +12,7 @@
     fixSubtitles: async () => ({ ok: true }), setAutoSkip: async (on) => on, onAutoSkip: () => {},
     getToggles: async () => ({}), setToggles: async (m) => m, sessionCheck: async () => ({ fresh: false }),
     reapplyDone: async () => {}, onReapply: () => {},
-    mouse: () => {}, saveNow: async () => ({ ok: true }), lastSave: async () => null, onAutoSaved: () => {}, onGameClosed: () => {},
+    mouse: () => {}, saveNow: async () => ({ ok: true }), lastSave: async () => null, onAutoSaved: () => {}, onGameClosed: () => {}, onSavesCleaned: () => {},
     mods: {
       plugins: async () => [{ name: 'Skyrim.esm', official: true, enabled: true }, { name: 'SkyUI_SE.esp', official: false, enabled: true }, { name: 'Alternate Start.esp', official: false, enabled: false }],
       setPlugin: async () => ({ ok: true }), installed: async () => ({}), install: async () => null, uninstall: async () => ({ ok: true }),
@@ -224,6 +224,7 @@
         const mins = Number(c.autosaveMinutes) || 10;
         return `<div class="card wide toggle ${c.autosave !== false ? 'on' : ''}" ${k} id="autosave-card">${meta(it)}
           <div class="row"><select class="field" id="autosave-mins" style="width:150px">${[5, 10, 15, 30].map((m) => `<option value="${m}" ${m === mins ? 'selected' : ''}>Every ${m} min</option>`).join('')}</select>
+          <select class="field" id="autosave-keep" style="width:150px" title="Older trainer saves go to the Recycle Bin">${[5, 10, 20, 30].map((n) => `<option value="${n}" ${n === (Number(c.autosaveKeep) || 10) ? 'selected' : ''}>Keep newest ${n}</option>`).join('')}</select>
           <div class="switch"></div></div></div>`;
       }
       case 'savenow':
@@ -278,6 +279,11 @@
         inp.addEventListener('keydown', (e) => e.key === 'Enter' && go());
       } else if (it.type === 'autosave') {
         $('#autosave-mins', card).addEventListener('click', (e) => e.stopPropagation());
+        $('#autosave-keep', card).addEventListener('click', (e) => e.stopPropagation());
+        $('#autosave-keep', card).addEventListener('change', async (e) => {
+          state.config = await api.setConfig({ autosaveKeep: Number(e.target.value) });
+          toast('Save cleanup updated', `Keeping the newest ${e.target.value} trainer saves; older ones go to the Recycle Bin`);
+        });
         $('#autosave-mins', card).addEventListener('change', async (e) => {
           state.config = await api.setConfig({ autosaveMinutes: Number(e.target.value) });
           toast('Auto-save interval saved', `Every ${e.target.value} minutes`);
@@ -294,7 +300,7 @@
           const res = await api.saveNow();
           card.classList.remove('busy');
           log('Save Now', ['save DovahAuto…'], res);
-          toast(res.ok ? 'Game saved' : 'Could not save', res.ok ? 'Saved to a DovahAuto slot' : res.error, !res.ok);
+          toast(res.ok ? 'Game saved' : 'Could not save', res.ok ? 'Saved as a new DovahAuto save' : res.error, !res.ok);
         });
       } else if (it.type === 'number') {
         const inp = $('input', card);
@@ -799,6 +805,9 @@
   api.onAutoSaved(({ name, reason }) => {
     log(reason === 'timer' ? 'Auto-saved' : 'Saved', [`save ${name}`], { ok: true });
     $('#dock-saved').textContent = `Saved ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  });
+  api.onSavesCleaned((names) => {
+    log(`Moved ${names.length} old trainer save${names.length > 1 ? 's' : ''} to the Recycle Bin`, names, { ok: true });
   });
   api.onGameClosed((last) => {
     toast('Skyrim closed', last ? `If it crashed, load "${last.name}" (Saves & Fixes → Load Latest Auto-Save)` : 'Turn on Auto-Save so a crash never costs you progress', !last);

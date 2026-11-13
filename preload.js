@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('trainer', {
   lastSave: () => ipcRenderer.invoke('save:last'),
   onAutoSaved: (fn) => ipcRenderer.on('autosaved', (_e, s) => fn(s)),
   onGameClosed: (fn) => ipcRenderer.on('game-closed', (_e, s) => fn(s)),
+  onSavesCleaned: (fn) => ipcRenderer.on('saves-cleaned', (_e, names) => fn(names)),
   mods: {
     plugins: () => ipcRenderer.invoke('mods:plugins'),
     setPlugin: (name, on) => ipcRenderer.invoke('mods:setPlugin', name, on),

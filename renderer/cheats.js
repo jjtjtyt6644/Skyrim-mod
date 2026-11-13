@@ -130,7 +130,7 @@ window.TABS = [
       {
         title: 'Saves',
         items: [
-          { type: 'autosave', name: 'Auto-Save', desc: 'Saves on a timer into three rotating slots (DovahAuto1–3) while you play, so a crash or a bad death never costs you more than a few minutes. It only saves while Skyrim is the active window and the trainer panel is closed. The trainer also warns you if Skyrim closes unexpectedly.' },
+          { type: 'autosave', name: 'Auto-Save', desc: 'Saves on a timer while you play (each save is named DovahAuto with the date and time), so a crash or a bad death never costs you more than a few minutes. Only the newest trainer saves are kept; older ones go to the Recycle Bin. Your own saves are never touched. It only saves while Skyrim is the active window and the trainer panel is closed, and warns you if Skyrim closes unexpectedly.' },
           { type: 'savenow', name: 'Save Now', desc: 'Make a save right away, e.g. before a hard fight or a risky cheat.' },
           { type: 'button', name: 'Load Latest Auto-Save', desc: 'Loads the newest DovahAuto save. Unsaved progress is lost.', label: 'Load', danger: true, dynamic: 'loadLatest' },
         ],

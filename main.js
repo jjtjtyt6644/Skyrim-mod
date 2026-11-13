@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const native = require('./native');
 const mods = require('./mods');
+const saves = require('./saves');
 
 const BAT_NAME = 'dovahtrainer';
 const TOGGLE_KEY = 'Insert';
@@ -22,6 +23,7 @@ const DEFAULTS = {
   checkpoint: true,  // save "DovahCheats" after re-applying, so dying reloads a save that has them
   autosave: true,    // timed saves into DovahAuto1..3 while you play
   autosaveMinutes: 10,
+  autosaveKeep: 10,  // keep the newest N trainer auto-saves; older ones go to the Recycle Bin
   lastAutoSave: null,
   nexusKey: '',      // the user's personal Nexus Mods API key (stored only on this PC)
   installedMods: {}, // { modName: { files: [relative paths under Data], plugins: [...], at } }
@@ -363,19 +365,31 @@ function createWindow() {
 
 // ---------- auto-save & crash watch ----------
 // The trainer can't see your health, so "save right before you die" isn't possible.
-// What works: save on a timer into rotating slots (DovahAuto1..3), only while you're
-// actually in the game, and warn you if Skyrim closes unexpectedly.
-const AUTOSAVE_SLOTS = 3;
+// What works: save on a timer (each save gets its own DovahAuto_<date>_<time> name),
+// only while you're actually in the game, keep the newest N (default 10) and move older
+// trainer saves to the Recycle Bin, and warn you if Skyrim closes unexpectedly.
 let lastAutoSave = 0;
-let autoSaveSlot = 0;
 let lastGamePid = 0;
+
+function trainerSavesDir() {
+  const prefs = prefsPath();
+  const myGames = prefs ? path.dirname(prefs) : path.join(app.getPath('documents'), 'My Games', 'Skyrim Special Edition');
+  return saves.savesDir(myGames);
+}
+
+async function cleanupTrainerSaves() {
+  try {
+    const removed = await saves.pruneTrainerSaves(trainerSavesDir(), config.autosaveKeep || 10, (f) => shell.trashItem(f));
+    if (removed.length) win?.webContents.send('saves-cleaned', removed);
+    return removed;
+  } catch { return []; }
+}
 const RESTORE_AFTER_MS = 90 * 1000;
 let sessionWatch = { pid: 0, inGameMs: 0, done: false };
 
 async function autoSaveNow(reason) {
   if (!isGameDir(config.gamePath) || !native.gameRunning()) return { ok: false, error: 'Skyrim is not running' };
-  autoSaveSlot = (autoSaveSlot % AUTOSAVE_SLOTS) + 1;
-  const name = `DovahAuto${autoSaveSlot}`;
+  const name = saves.newSaveName();
   // Refresh stat cheats first (repeatable forceav), so they're in the save and come
   // back even if a death reloaded an older save since the last refresh.
   const refresh = config.appliedPid === native.gamePid() ? (config.saveCmds || []) : [];
@@ -385,6 +399,8 @@ async function autoSaveNow(reason) {
     config.lastAutoSave = { name, at: lastAutoSave };
     saveConfig();
     win?.webContents.send('autosaved', { name, at: lastAutoSave, reason });
+    // Skyrim writes the save file a moment after the console command; tidy up after that.
+    setTimeout(cleanupTrainerSaves, 15000);
   }
   return res;
 }
@@ -518,7 +534,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('config:get', () => config);
   ipcMain.handle('config:set', (_e, patch) => {
-    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys', 'checkpoint', 'autosave', 'autosaveMinutes', 'nexusKey'];
+    const allowed = ['gamePath', 'consoleScan', 'activateScan', 'keyDelay', 'hotkeys', 'checkpoint', 'autosave', 'autosaveMinutes', 'autosaveKeep', 'nexusKey'];
     for (const k of allowed) if (k in patch) config[k] = patch[k];
     saveConfig();
     refreshHotkeys();

@@ -42,7 +42,8 @@ The trainer never reads or monitors the keyboard. There's no PowerShell, no keyb
 
 ## Saves & Fixes
 
-- **Auto-Save** (on by default) saves every 5, 10, 15 or 30 minutes into rotating slots `DovahAuto1` to `DovahAuto3`. It only saves while Skyrim is the active window and the panel is closed. The trainer can't read your health, so it can't save at the exact moment before you die; a timed save means a death or crash costs a few minutes at most.
+- **Auto-Save** (on by default) saves every 5, 10, 15 or 30 minutes. Each save gets its own name, like `DovahAuto_20261114_153012`. It only saves while Skyrim is the active window and the panel is closed.
+- **Save cleanup:** only the newest 10 trainer saves are kept (you can pick 5, 10, 20 or 30). Older ones, with their `.skse` co-saves, are moved to the **Recycle Bin**, so you can still restore one. The cleanup (`saves.js`) only ever touches files named `DovahAuto…`; your own saves, Skyrim's autosaves and quicksaves, and the `DovahCheats`/`DovahQuestBackup` slots are never deleted. The trainer can't read your health, so it can't save at the exact moment before you die; a timed save means a death or crash costs a few minutes at most.
 - **Crash watch:** if Skyrim closes unexpectedly, the trainer tells you which save to load.
 - **One-click bug fixes.** Sources: UESP's *Skyrim:Bugs* page and Nexus/Steam threads.
   - Stuck controls: `enableplayercontrols`.
