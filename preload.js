@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('trainer', {
   setAutoSkip: (on) => ipcRenderer.invoke('autoskip:set', on),
   onAutoSkip: (fn) => ipcRenderer.on('autoskip', (_e, s) => fn(s)),
   getToggles: () => ipcRenderer.invoke('toggles:get'),
-  setToggles: (map, changedSave) => ipcRenderer.invoke('toggles:set', map, changedSave),
+  setToggles: (map, changedSave, saveCmds) => ipcRenderer.invoke('toggles:set', map, changedSave, saveCmds),
   sessionCheck: () => ipcRenderer.invoke('session:check'),
   reapplyDone: (full) => ipcRenderer.invoke('reapply:done', full),
   onReapply: (fn) => ipcRenderer.on('reapply', (_e, opts) => fn(opts)),

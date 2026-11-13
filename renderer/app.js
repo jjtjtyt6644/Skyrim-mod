@@ -71,11 +71,14 @@
   // restarts and can be re-applied after death or a Skyrim restart.
   function persistToggles(changedSave) {
     const map = {};
+    const saveCmds = [];
     for (const [k, v] of Object.entries(state.toggles)) {
       const it = items.get(k);
-      if (v && it && !it.native && it.persist !== 'none') map[k] = it.persist || 'session';
+      if (!v || !it || it.native || it.persist === 'none') continue;
+      map[k] = it.persist || 'session';
+      if (it.persist === 'save') saveCmds.push(...it.on); // safe to repeat (forceav)
     }
-    return api.setToggles(map, !!changedSave);
+    return api.setToggles(map, !!changedSave, saveCmds);
   }
 
   const activeToggles = () => Object.entries(state.toggles).filter(([, v]) => v).map(([k]) => items.get(k)).filter((it) => it && !it.native && it.persist !== 'none');
@@ -760,6 +763,7 @@
     state.version = await api.version();
     // Remembered cheats (kept in config.json by the main process).
     try { for (const k of Object.keys(await api.getToggles())) if (items.has(k)) state.toggles[k] = true; } catch { /* none */ }
+    persistToggles(false); // refresh the stored re-apply commands (e.g. after an update changed them)
     try { const s = await api.status(); state.subtitles = s.subtitles; } catch { /* status unavailable */ }
     renderNav();
     $('#log-list').innerHTML = '<li class="empty">Nothing yet. Flip a cheat to get started.</li>';

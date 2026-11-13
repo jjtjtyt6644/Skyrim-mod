@@ -35,8 +35,9 @@ The trainer never reads or monitors the keyboard. There's no PowerShell, no keyb
 ## Keeping cheats on (death, restarts)
 
 - The trainer remembers which cheats you turned on, even after you close and reopen it (stored in `%APPDATA%\Dovah Trainer\config.json`).
-- **Dying** reloads your last save, which drops stat cheats such as Infinite Magicka, Speed, Crit and One-Hit Kills. When you return to the game from the trainer, it re-applies them. It also saves to a `DovahCheats` slot, so the next death reloads a save that still has them. You can switch the checkpoint save off in Settings. God Mode, No Clip and other console toggles survive death by themselves.
-- **Restarting Skyrim** resets everything. The next time you open the trainer, it re-applies all your cheats once.
+- **Stat cheats** (Infinite Magicka/Stamina, Regen, Carry Weight, Crit, One-Hit Kills, Speed) use `forceav`. It sets an exact value through the saved "script" modifier, the same one `modav` uses, so the cheats survive saves, autosaves, doors, cells and quest ends, and re-applying never stacks. Versions 1.3 and 1.4 used `setav`, which Skyrim wipes on every save, so cheats vanished when you entered a building or finished a quest.
+- **Dying** reloads your last save. Stat cheats are kept in later saves, and every trainer auto-save also re-applies them. Going back to the game from the trainer re-applies them too. God Mode, No Clip and other console toggles survive death by themselves.
+- **Restarting Skyrim:** after about 90 seconds of playing in the new session, the trainer re-applies all your cheats automatically. **Restore my cheats** does it on demand.
 - **Restore my cheats** in the sidebar (or in the tray menu) re-applies everything on demand.
 
 ## Saves & Fixes

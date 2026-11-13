@@ -369,12 +369,17 @@ const AUTOSAVE_SLOTS = 3;
 let lastAutoSave = 0;
 let autoSaveSlot = 0;
 let lastGamePid = 0;
+const RESTORE_AFTER_MS = 90 * 1000;
+let sessionWatch = { pid: 0, inGameMs: 0, done: false };
 
 async function autoSaveNow(reason) {
   if (!isGameDir(config.gamePath) || !native.gameRunning()) return { ok: false, error: 'Skyrim is not running' };
   autoSaveSlot = (autoSaveSlot % AUTOSAVE_SLOTS) + 1;
   const name = `DovahAuto${autoSaveSlot}`;
-  const res = await runCommands([`save ${name}`]);
+  // Refresh stat cheats first (repeatable forceav), so they're in the save and come
+  // back even if a death reloaded an older save since the last refresh.
+  const refresh = config.appliedPid === native.gamePid() ? (config.saveCmds || []) : [];
+  const res = await runCommands([...refresh, `save ${name}`]);
   if (res.ok) {
     lastAutoSave = Date.now();
     config.lastAutoSave = { name, at: lastAutoSave };
@@ -398,14 +403,32 @@ function startAutoSave() {
       win?.webContents.send('game-closed', last || null);
     }
     lastGamePid = pid;
+
+    let fgNow = '';
+    try { fgNow = native.foregroundProcess(); } catch { /* ignore */ }
+
+    // Skyrim was (re)started and you have remembered cheats: once you've been playing
+    // (Skyrim in front) for ~90 s — past the main menu and load screen — put them back,
+    // without needing to open the trainer.
+    if (pid && pid !== config.appliedPid && Object.keys(config.toggles || {}).length && !overlayOpen) {
+      if (sessionWatch.pid !== pid) sessionWatch = { pid, inGameMs: 0, done: false };
+      if (fgNow === 'SkyrimSE' && !sessionWatch.done) {
+        sessionWatch.inGameMs += 5000;
+        if (sessionWatch.inGameMs >= RESTORE_AFTER_MS) {
+          sessionWatch.done = true;
+          lastReapply = Date.now();
+          win?.webContents.send('reapply', { full: true, checkpoint: false });
+          tray?.displayBalloon({ iconType: 'info', title: 'Cheats restored', content: 'Your cheats were re-applied for this Skyrim session.' });
+        }
+      }
+    }
+
     // Timed auto-save: only while Skyrim is the active window and the panel is closed,
     // so it never steals focus from something else you're doing.
     const mins = Number(config.autosaveMinutes) || 0;
     if (!pid || !config.autosave || mins <= 0 || overlayOpen) return;
     if (Date.now() - lastAutoSave < mins * 60000) return;
-    let fg = '';
-    try { fg = native.foregroundProcess(); } catch { /* ignore */ }
-    if (fg === 'SkyrimSE') autoSaveNow('timer');
+    if (fgNow === 'SkyrimSE') autoSaveNow('timer');
   }, 5000);
 }
 
@@ -471,10 +494,12 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('toggles:get', () => config.toggles || {});
-  ipcMain.handle('toggles:set', (_e, map, changedSave) => {
+  ipcMain.handle('toggles:set', (_e, map, changedSave, saveCmds) => {
     const clean = {};
     for (const [k, v] of Object.entries(map || {})) if (v === 'save' || v === 'session') clean[k] = v;
     config.toggles = clean;
+    // Stat-cheat commands (forceav = repeatable), re-run with every auto-save.
+    config.saveCmds = (Array.isArray(saveCmds) ? saveCmds : []).filter((c) => /^player\.(forceav|modav) [a-z]+ -?[\d.]+$/i.test(String(c))).slice(0, 40);
     if (changedSave) checkpointDirty = true;
     saveConfig();
     return config.toggles;

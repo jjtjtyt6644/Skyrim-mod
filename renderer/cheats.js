@@ -78,7 +78,7 @@ const CLUTTER = [
 const removeAll = (ids) => ids.map((id) => `player.removeitem ${id} 1000`);
 
 // Speed changes only apply once carry weight changes, so nudge it.
-const speedCmds = (v) => [`player.setav speedmult ${v}`, 'player.modav carryweight 1', 'player.modav carryweight -1'];
+const speedCmds = (v) => [`player.forceav speedmult ${v}`, 'player.modav carryweight 1', 'player.modav carryweight -1'];
 
 window.TABS = [
   {
@@ -88,13 +88,14 @@ window.TABS = [
         title: 'Survival',
         items: [
           // persist: 'session' = console toggle, survives death/loads, reset when Skyrim restarts.
-          //          'save'    = stat change stored in the save; re-applied after death. Uses setav
-          //                      (absolute values), so re-applying never stacks.
+          //          'save'    = stat change. Uses forceav: it sets an exact value through the saved
+          //                      'script' modifier (like modav), so it survives saves, doors and
+          //                      quest ends, and re-applying never stacks. (setav got wiped by saves.)
           { type: 'toggle', id: 'god', persist: 'session', name: 'God Mode', desc: 'Invulnerable, unlimited magicka/stamina, no carry limit.', on: ['tgm'], off: ['tgm'], hotkey: 'F1' },
-          { type: 'toggle', id: 'mana', persist: 'save', name: 'Infinite Magicka', desc: 'Magicka refills almost instantly.', on: ['player.setav magickarate 5000'], off: ['player.setav magickarate 3'], hotkey: 'F2' },
-          { type: 'toggle', id: 'stam', persist: 'save', name: 'Infinite Stamina', desc: 'Sprint and power-attack forever.', on: ['player.setav staminarate 5000'], off: ['player.setav staminarate 5'], hotkey: 'F3' },
-          { type: 'toggle', id: 'regen', persist: 'save', name: 'Fast Health Regen', desc: 'Health regenerates rapidly, even in combat.', on: ['player.setav healrate 500', 'player.setav combathealthregenmult 100'], off: ['player.setav healrate 0.7', 'player.setav combathealthregenmult 0.7'] },
-          { type: 'toggle', id: 'weight', persist: 'save', name: 'Unlimited Carry Weight', desc: 'Never be over-encumbered. Off restores the default 300 base (items and perks still add on top).', on: ['player.setav carryweight 100000'], off: ['player.setav carryweight 300'] },
+          { type: 'toggle', id: 'mana', persist: 'save', name: 'Infinite Magicka', desc: 'Magicka refills almost instantly.', on: ['player.forceav magickarate 5000'], off: ['player.forceav magickarate 3'], hotkey: 'F2' },
+          { type: 'toggle', id: 'stam', persist: 'save', name: 'Infinite Stamina', desc: 'Sprint and power-attack forever.', on: ['player.forceav staminarate 5000'], off: ['player.forceav staminarate 5'], hotkey: 'F3' },
+          { type: 'toggle', id: 'regen', persist: 'save', name: 'Fast Health Regen', desc: 'Health regenerates rapidly, even in combat.', on: ['player.forceav healrate 500', 'player.forceav combathealthregenmult 100'], off: ['player.forceav healrate 0.7', 'player.forceav combathealthregenmult 0.7'] },
+          { type: 'toggle', id: 'weight', persist: 'save', name: 'Unlimited Carry Weight', desc: 'Never be over-encumbered. Turning it off sets your carry weight back to 300.', on: ['player.forceav carryweight 100000'], off: ['player.forceav carryweight 300'] },
           { type: 'button', name: 'Full Restore', desc: 'Refill health, magicka and stamina now.', label: 'Restore', cmds: ['player.restoreav health 100000', 'player.restoreav magicka 100000', 'player.restoreav stamina 100000'] },
           { type: 'button', name: 'Repair Stats', desc: 'Puts magicka, stamina and health regeneration back to normal if an older trainer version left them stuck.', label: 'Repair', cmds: ['player.forceav magickarate 3', 'player.forceav staminarate 5', 'player.forceav healrate 0.7', 'player.forceav combathealthregenmult 0.7'] },
         ],
@@ -102,10 +103,10 @@ window.TABS = [
       {
         title: 'Combat',
         items: [
-          { type: 'toggle', id: 'crit', persist: 'save', name: 'Always Critical', desc: '100% critical hit chance.', on: ['player.setav critchance 100'], off: ['player.setav critchance 0'], hotkey: 'F4' },
-          { type: 'toggle', id: 'ohk', persist: 'save', name: 'One-Hit Kills', desc: '100x weapon attack damage.', on: ['player.setav attackdamagemult 100'], off: ['player.setav attackdamagemult 1'], hotkey: 'F6' },
+          { type: 'toggle', id: 'crit', persist: 'save', name: 'Always Critical', desc: '100% critical hit chance.', on: ['player.forceav critchance 100'], off: ['player.forceav critchance 0'], hotkey: 'F4' },
+          { type: 'toggle', id: 'ohk', persist: 'save', name: 'One-Hit Kills', desc: '100x weapon attack damage.', on: ['player.forceav attackdamagemult 100'], off: ['player.forceav attackdamagemult 1'], hotkey: 'F6' },
           { type: 'toggle', id: 'stealth', persist: 'session', name: 'Undetectable', desc: 'Turns off AI detection — sneak anywhere.', on: ['tdetect'], off: ['tdetect'] },
-          { type: 'slider', name: 'Damage Multiplier', desc: 'Fine-tune attack damage (1 = normal).', min: 1, max: 50, step: 1, value: 1, unit: 'x', cmds: (v) => [`player.setav attackdamagemult ${v}`] },
+          { type: 'slider', name: 'Damage Multiplier', desc: 'Fine-tune attack damage (1 = normal).', min: 1, max: 50, step: 1, value: 1, unit: 'x', cmds: (v) => [`player.forceav attackdamagemult ${v}`] },
         ],
       },
       {
@@ -169,7 +170,7 @@ window.TABS = [
           { type: 'button', name: 'Can’t Move / Controls Locked', desc: 'After a cutscene, a crafting station, mining or a mod menu you can’t move, attack or open menus. Re-enables all player controls.', label: 'Fix', cmds: ['enableplayercontrols'] },
           { type: 'button', name: 'Stuck Crouching, Sitting or at a Workbench', desc: 'Can’t stand up, can’t use crafting stations or interact with anything. Resets your character’s AI (toggled off and back on), which makes you stand and interact again.', label: 'Fix', cmds: ['player.tai', 'player.tai', 'enableplayercontrols'] },
           { type: 'toggle', id: 'unstuck', persist: 'none', name: 'Stuck in a Wall, Rock or the Ground', desc: 'Turn on, walk out of whatever you’re stuck in, then turn it off again (collision off while on).', on: ['tcl'], off: ['tcl'] },
-          { type: 'button', name: 'Stuck Walking Slowly', desc: 'Your speed is stuck low after a spell, a mod or a bugged effect. Resets movement speed to normal.', label: 'Fix', cmds: ['player.setav speedmult 100', 'player.modav carryweight 1', 'player.modav carryweight -1'] },
+          { type: 'button', name: 'Stuck Walking Slowly', desc: 'Your speed is stuck low after a spell, a mod or a bugged effect. Resets movement speed to normal.', label: 'Fix', cmds: ['player.forceav speedmult 100', 'player.modav carryweight 1', 'player.modav carryweight -1'] },
           { type: 'button', name: 'Frozen by a Lingering Spell', desc: 'Paralysis or another effect that never wore off. Removes all active spell effects on you.', label: 'Fix', cmds: ['player.dispelallspells'] },
         ],
       },
@@ -198,7 +199,7 @@ window.TABS = [
       {
         title: 'Everything at Once',
         items: [
-          { type: 'button', name: 'Fix All Common Bugs', desc: 'Runs the safe fixes together: controls, stuck animation, combat lock, combat music and walking speed.', label: 'Fix all', cmds: ['enableplayercontrols', 'player.tai', 'player.tai', 'player.stopcombatalarm', 'removemusic muscombat', 'player.setav speedmult 100', 'player.modav carryweight 1', 'player.modav carryweight -1'] },
+          { type: 'button', name: 'Fix All Common Bugs', desc: 'Runs the safe fixes together: controls, stuck animation, combat lock, combat music and walking speed.', label: 'Fix all', cmds: ['enableplayercontrols', 'player.tai', 'player.tai', 'player.stopcombatalarm', 'removemusic muscombat', 'player.forceav speedmult 100', 'player.modav carryweight 1', 'player.modav carryweight -1'] },
         ],
       },
     ],
