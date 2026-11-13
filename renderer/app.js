@@ -291,7 +291,7 @@
             <input class="field" id="delay" type="number" min="15" max="300" value="${c.keyDelay}" style="width:90px"></div>
           <div class="card" style="--i:3"><div class="meta"><h4>Activate key scan code</h4><p>Used to skip dialogue. 0x12 is E. Change it if you rebound Activate in game.</p></div>
             <input class="field" id="act-scan" value="0x${Number(c.activateScan ?? 0x12).toString(16).toUpperCase()}" style="width:90px"></div>
-          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats and F11 toggles dialogue skipping, while Skyrim or the trainer is the active window. Uses standard Windows hotkeys; the keyboard is never monitored.</p></div><div class="switch"></div></div>
+          <div class="card toggle ${c.hotkeys ? 'on' : ''}" id="hk" style="--i:3"><div class="meta"><h4>Global hotkeys</h4><p>F1–F4, F6–F8 and F10 toggle cheats while the trainer is open. Skyrim blocks normal hotkeys while you play, and the trainer never monitors your keyboard, so in game use Alt+Tab to open it.</p></div><div class="switch"></div></div>
         </div></section>
         <section class="section"><div class="section-title">Updates</div><div class="grid">
           <div class="card wide" style="--i:4"><div class="meta"><h4>Version <span class="ver">${esc(state.version)}</span></h4>
@@ -299,7 +299,7 @@
             <div class="row"><button class="btn frost" id="upd-check">Check for updates</button><button class="btn" id="upd-notes">Release notes</button><button class="ghost" data-win="quit">Quit trainer</button></div></div>
         </div></section>
         <section class="section"><div class="section-title">Hotkey map</div><div class="grid">
-          ${[['Insert', 'Open / close trainer'], ...[...hotkeys].map(([k, it]) => [k, it.name])]
+          ${[['Alt+Tab', 'Open trainer in game (pick "Dovah Trainer")'], ['Esc', 'Back to game'], ...[...hotkeys].map(([k, it]) => [k, it.name])]
             .map(([k, name], i) => `<div class="card" style="--i:${i + 4}"><span class="kbd">${k}</span><div class="meta"><h4>${esc(name)}</h4></div></div>`).join('')}
         </div></section>`;
     },
@@ -532,7 +532,7 @@
     const r = await api.fixDisplay();
     if (!r.ok) return toast('Could not change display mode', r.error, true);
     $('#display-warn').hidden = true;
-    toast('Skyrim set to Borderless Windowed', 'Start the game, then press Insert to open the trainer');
+    toast('Skyrim set to Borderless Windowed', 'Start the game, then Alt+Tab to "Dovah Trainer" to open it');
   });
 
   api.onAutoSkip(({ on, reason }) => {

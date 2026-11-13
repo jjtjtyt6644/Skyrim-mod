@@ -1,7 +1,7 @@
 {
   "name": "skyrim-trainer",
   "productName": "Dovah Trainer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Electron trainer for Skyrim Special Edition (single-player). Drives the in-game console via batch files.",
   "main": "main.js",
   "repository": "https://github.com/jjtjtyt6644/Skyrim-mod",

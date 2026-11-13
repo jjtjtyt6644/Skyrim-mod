@@ -162,6 +162,7 @@ async function showOverlay() {
     // Skyrim holds the foreground; take it back so the cursor is freed.
     await native.focusWindow(hwnd());
   });
+  dbg('showOverlay done', { visible: win.isVisible(), minimized: win.isMinimized(), focused: win.isFocused() });
 }
 
 function hideOverlay(returnToGame = true) {
@@ -231,7 +232,6 @@ function setHotkeysActive(on) {
   bindKey(TOGGLE_KEY, toggleOverlay);
   if (!config.hotkeys) return;
   for (const key of CHEAT_KEYS) bindKey(key, () => win?.webContents.send('hotkey', key));
-  bindKey('F11', () => setAutoSkip(!skip.auto, 'hotkey'));
 }
 
 // Check which app is in front twice a second (window focus only, never keys).
@@ -249,9 +249,9 @@ function refreshHotkeys() { const was = hotkeysActive; hotkeysActive = !was; set
 function createTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'icon.png')).resize({ width: 16, height: 16 });
   tray = new Tray(img);
-  tray.setToolTip(`Dovah Trainer: press ${TOGGLE_KEY} in game`);
+  tray.setToolTip('Dovah Trainer: Alt+Tab to it in game');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `Show / hide trainer (${TOGGLE_KEY})`, click: toggleOverlay },
+    { label: 'Show / hide trainer', click: toggleOverlay },
     { type: 'separator' },
     { label: 'Quit Dovah Trainer', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -291,8 +291,11 @@ function createWindow() {
   win.once('ready-to-show', async () => {
     // Don't pop up over a game in progress; just say how to open it.
     if (native.gameRunning()) {
-      tray?.displayBalloon({ iconType: 'info', title: 'Dovah Trainer is running', content: `Press ${TOGGLE_KEY} in game to open it.` });
+      tray?.displayBalloon({ iconType: 'info', title: 'Dovah Trainer is running', content: 'In game, press Alt+Tab and pick "Dovah Trainer" to open it.' });
     } else {
+      // Startup shuffles focus (tray, launcher); don't let that auto-hide the overlay.
+      holdCount++;
+      setTimeout(() => { holdCount--; }, 2500);
       showOverlay();
     }
   });
@@ -306,12 +309,48 @@ function createWindow() {
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 }
 
+// ---------- Alt+Tab / taskbar launcher ----------
+// Skyrim takes the keyboard exclusively, so no normal hotkey reaches the trainer while
+// you play, and watching the keyboard ourselves looks like a keylogger to antivirus.
+// Instead, a minimized "Dovah Trainer" window sits in the taskbar and the Alt+Tab list
+// (Alt+Tab works in borderless Skyrim). Switching to it opens the overlay.
+let launcher = null;
+function createLauncher() {
+  launcher = new BrowserWindow({
+    title: 'Dovah Trainer (open trainer)', width: 320, height: 80, x: -32000, y: -32000,
+    show: false, frame: false, resizable: false, skipTaskbar: false, focusable: true,
+    backgroundColor: '#07090d', icon: path.join(__dirname, 'renderer', 'icon.png'),
+    webPreferences: { sandbox: true, contextIsolation: true },
+  });
+  launcher.loadURL('data:text/html,<title>Dovah Trainer (open trainer)</title>');
+  launcher.on('page-title-updated', (e) => e.preventDefault());
+  launcher.minimize();
+  // Debounced: opening the overlay moves focus around, which must not re-trigger this.
+  let lastOpen = 0;
+  const open = (ev) => {
+    dbg('launcher', ev?.type || 'event', { overlayOpen, sinceLast: Date.now() - lastOpen, minimized: launcher.isMinimized() });
+    if (overlayOpen || Date.now() - lastOpen < 1000) return;
+    lastOpen = Date.now();
+    setTimeout(() => {
+      if (!launcher.isMinimized()) launcher.minimize();
+      showOverlay();
+    }, 60);
+  };
+  // Start listening once the minimized window has settled after launch.
+  setTimeout(() => {
+    launcher.on('focus', open);
+    launcher.on('restore', open);
+  }, 1500);
+  launcher.on('close', (e) => { if (!quitting) { e.preventDefault(); launcher.minimize(); } });
+}
+
 app.on('second-instance', () => showOverlay());
 
 app.whenReady().then(async () => {
   loadConfig();
   if (!isGameDir(config.gamePath)) { config.gamePath = await detectGamePath(); saveConfig(); }
   startHotkeys();
+  createLauncher();
   createWindow();
   createTray();
 

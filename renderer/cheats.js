@@ -156,8 +156,8 @@ window.TABS = [
       {
         title: 'Dialogue',
         items: [
-          { type: 'toggle', id: 'autoskip', native: 'autoskip', name: 'Auto-Skip Dialogue', hotkey: 'F11',
-            desc: 'Press F11 when a conversation starts. It presses Activate about once a second to skip NPC lines, and also picks the highlighted reply. Stops after 45 seconds, or press F11 again.' },
+          { type: 'toggle', id: 'autoskip', native: 'autoskip', name: 'Auto-Skip Dialogue',
+            desc: 'When a conversation starts, Alt+Tab here, turn this on and press Esc. It presses Activate about once a second to skip NPC lines (and picks the highlighted reply). Stops after 45 seconds.' },
           { type: 'subtitles' },
         ],
       },

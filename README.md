@@ -42,8 +42,9 @@ The trainer never reads or monitors the keyboard. There's no PowerShell, no keyb
 
 The trainer runs as an overlay on top of Skyrim, not as a separate window.
 
-- Press **Insert** anywhere to open or close it. **Esc**, the ✕ button, or clicking the dimmed game behind the panel also closes it.
-- It stays on top of the game and doesn't show in the taskbar. Quit from the tray icon or **Settings → Quit trainer**.
+- **To open it in game, press Alt+Tab and pick "Dovah Trainer"**, or click its taskbar button. **Esc**, the ✕ button, or clicking the dimmed game behind the panel takes you back to the game.
+- Why not a hotkey like Insert? Skyrim takes the keyboard exclusively, so normal Windows hotkeys never reach other programs while you play. The only way around that is watching the keyboard yourself, which antivirus treats as keylogger behaviour. The trainer doesn't do that.
+- The panel stays on top of the game. Quit from the tray icon or **Settings → Quit trainer**.
 - Launching it a second time just opens the existing overlay.
 - **Skyrim must run in Borderless Windowed.** Nothing can draw over exclusive fullscreen. If yours is in fullscreen, the trainer shows a banner with a **Switch to Borderless** button. That button edits `SkyrimPrefs.ini` and saves a `.dovah-backup` copy first. Close Skyrim before using it.
 
@@ -52,7 +53,7 @@ The trainer runs as an overlay on top of Skyrim, not as a separate window.
 - **Unlock All Waypoints** runs `tmm 1,1,1`: every map marker, hidden ones included, becomes discovered, so you can fast travel anywhere. Only loading an older save undoes it.
 - **Reveal Map Only** runs `tmm 1,0,1`: markers show on the map but stay undiscovered.
 - **Dialogue skipping:** vanilla Skyrim has no setting to speed up dialogue, but it skips the current NPC line when you press Activate, as long as **dialogue subtitles are on**. The trainer presses Activate for you:
-  - Press **F11** (or flip **Auto-Skip Dialogue**) when a conversation starts. It presses Activate about once a second and also picks the highlighted reply. It stops after 45 seconds, or when you press F11 again. It only presses keys while Skyrim is the active window.
+  - When a conversation starts, Alt+Tab to the trainer, turn on **Auto-Skip Dialogue**, then press Esc. It presses Activate about once a second and also picks the highlighted reply. It stops after 45 seconds, and only presses keys while Skyrim is the active window.
   - The World tab shows whether subtitles are on. To turn them on while playing, go to System › Settings › Display › Dialogue Subtitles.
   - For instant skipping of lines that can't normally be skipped, you'd need an SKSE plugin such as *Instantly Skip Dialogue*.
 
@@ -60,8 +61,7 @@ The trainer runs as an overlay on top of Skyrim, not as a separate window.
 
 - If the console doesn't open (non-US keyboard), change **Settings → Console key scan code**.
 - If commands get cut off, raise **Key delay**.
-- Cheat hotkeys are **F1–F4, F6–F8 and F10**. They skip F5 and F9 (quicksave and quickload) and have no Ctrl, because Ctrl is Skyrim's sneak key. They only work while Skyrim or the trainer is the active window.
-- Hotkeys are only registered while Skyrim or the trainer is the active window, so the F-keys work normally in other apps. Each key also works with Shift held, for when you're running.
+- Cheat hotkeys **F1–F4, F6–F8 and F10** work while the trainer is open (Skyrim blocks them while you play). They're only registered while the trainer or Skyrim is the active window, so F-keys work normally in other apps.
 - Toggles like Infinite Magicka use `modav`, and `modav` changes are kept in your save. Use **Turn off all toggles** before you save if you want a clean character.
 - Achievements: the console doesn't disable achievements, and this trainer loads no plugins. The Achievements tab only makes real in-game progress happen (skill-ups and level-ups), and the game decides what to award. To unlock achievements directly, use Steam Achievement Manager.
 
